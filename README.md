@@ -1,11 +1,11 @@
-# solo-daily
+# lmnop:handler
 
 Hello-world FastMCP server over Streamable HTTP.
 
 ## Run
 
 ```bash
-uv run solo-daily
+uv run lmnop-handler
 ```
 
 The MCP endpoint will be available at:
@@ -23,7 +23,7 @@ https://your-host/mcp
 ## Inspect the server
 
 ```bash
-uv run fastmcp inspect src/solo_daily/__init__.py:mcp
+uv run fastmcp inspect src/lmnop/handler/__init__.py:mcp
 ```
 
 ## Call the hello tool

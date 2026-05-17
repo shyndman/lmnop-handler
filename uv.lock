@@ -927,7 +927,7 @@ wheels = [
 ]
 
 [[package]]
-name = "solo-daily"
+name = "lmnop-handler"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

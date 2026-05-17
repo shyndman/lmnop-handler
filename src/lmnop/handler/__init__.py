@@ -4,7 +4,7 @@ DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8000
 STANDUP_TAG = "#standup"
 
-mcp = FastMCP("solo-daily")
+mcp = FastMCP("lmnop:handler")
 
 
 @mcp.tool

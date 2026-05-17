@@ -18,4 +18,4 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
-CMD ["/app/.venv/bin/solo-daily"]
+CMD ["/app/.venv/bin/lmnop-handler"]
