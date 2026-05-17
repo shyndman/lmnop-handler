@@ -38,4 +38,5 @@ pythonPlatform = "Linux"
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.3",
+    "pytest>=9.0.3",
 ]
