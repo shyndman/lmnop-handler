@@ -4,10 +4,17 @@ Obsidian-backed FastMCP server over Streamable HTTP.
 
 ## Run
 
-Set the required environment first:
+Copy `config.yaml.sample` to `~/.config/lmnop-handler/config.yaml` and fill in the bearer token:
 
 ```bash
-export LMNOP_HANDLER_VAULT_ROOT=/path/to/vault
+mkdir -p ~/.config/lmnop-handler
+cp config.yaml.sample ~/.config/lmnop-handler/config.yaml
+```
+
+Environment variables still override file values when needed:
+
+```bash
+export LMNOP_HANDLER_PORT=9000
 export LMNOP_HANDLER_BEARER_TOKENS='{"claude":"secret-token"}'
 ```
 
@@ -16,6 +23,8 @@ Then start the server:
 ```bash
 uv run lmnop-handler
 ```
+
+On startup the server prints a readable configuration summary with bearer tokens redacted down to their first three characters.
 
 The MCP endpoint is available at:
 

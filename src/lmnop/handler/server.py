@@ -12,7 +12,12 @@ from fastmcp.resources import ResourceContent, ResourceResult
 from pydantic import BaseModel, ConfigDict, Field
 
 from .auth import ConfiguredTokenVerifier
-from .config import Settings, load_settings
+from .config import (
+    LoadedSettings,
+    Settings,
+    format_settings_report,
+    load_loaded_settings,
+)
 from .models import AppendResult, FileSnapshot, ResolveResult, TaskIndex, TaskRecord
 from .obsidian import (
     ObsidianCli,
@@ -373,19 +378,29 @@ class HandlerApplication:
 class EnvironmentApplication:
     _env: Mapping[str, str]
     _application: HandlerApplication | None
+    _loaded_settings: LoadedSettings | None
     _verifier: ConfiguredTokenVerifier
 
     def __init__(self, env: Mapping[str, str] | None = None):
         self._env = env or os.environ
         self._application = None
+        self._loaded_settings = None
         self._verifier = ConfiguredTokenVerifier(self._load_tokens)
 
     @property
     def auth_verifier(self) -> ConfiguredTokenVerifier:
         return self._verifier
 
+    def loaded_settings(self) -> LoadedSettings:
+        if self._loaded_settings is None:
+            self._loaded_settings = load_loaded_settings(self._env)
+        return self._loaded_settings
+
     def settings(self) -> Settings:
-        return load_settings(self._env)
+        return self.loaded_settings().settings
+
+    def startup_report(self) -> str:
+        return format_settings_report(self.loaded_settings())
 
     def application(self) -> HandlerApplication:
         if self._application is None:
