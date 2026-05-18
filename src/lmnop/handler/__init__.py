@@ -1,16 +1,13 @@
-from fastmcp import FastMCP
+from __future__ import annotations
 
-DEFAULT_HOST = "0.0.0.0"
-DEFAULT_PORT = 8000
-STANDUP_TAG = "#standup"
+from .server import EnvironmentApplication, create_mcp
 
-mcp = FastMCP("lmnop:handler")
-
-
-@mcp.tool
-def hello(name: str = "world") -> str:
-    return f"Hello, {name}!"
+DEFAULT_RUNTIME = EnvironmentApplication()
+mcp = create_mcp(DEFAULT_RUNTIME)
 
 
 def main() -> None:
-    mcp.run(transport="http", host=DEFAULT_HOST, port=DEFAULT_PORT)
+    settings = DEFAULT_RUNTIME.settings()
+    create_mcp(DEFAULT_RUNTIME).run(
+        transport="http", host=settings.host, port=settings.port
+    )

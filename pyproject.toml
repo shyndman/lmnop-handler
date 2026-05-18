@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "fastmcp>=3.2.4",
+    "pydantic>=2.13.3",
 ]
 
 [project.scripts]
@@ -23,7 +24,7 @@ module-name = "lmnop"
 namespace = true
 
 [tool.basedpyright]
-include = ["src"]
+include = ["src", "tests"]
 exclude = [
   "**/__pycache__",
 ]
