@@ -118,6 +118,7 @@ Notes:
 - far-future tasks are intentionally omitted from the standup briefing
 - `line` values from `tasks ... verbose format=json` are strings and must be parsed to integers before building `ref=<path:line>`
 - `skip` leaves an unscheduled task unchanged in the vault; it only means "do not schedule this right now"
+- command execution is ownership-aware: the intended CLI command runs first; if it returns promptly, use that result, and if it instead becomes the long-running Obsidian app launcher, keep that handle and retry the same command until IPC is ready
 
 ---
 
@@ -182,6 +183,8 @@ Carried tasks become part of today's actionable set through the newly appended c
 ## Architecture Notes
 
 **Server location:** The Obsidian CLI requires the desktop app to be running via IPC. The server must run on the same machine.
+
+**App lifecycle:** The server does not always own the Obsidian process. On each command, it first tries the intended CLI command. If that command returns, use the result directly and assume another Obsidian instance was already running. If that command stays running, treat it as the launched desktop app process, retain the handle, and retry the same command until IPC becomes ready. If the owned process later exits, start over on the next command.
 
 **Authentication:** Bearer tokens — one per client, revocable independently.
 

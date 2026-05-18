@@ -154,13 +154,17 @@ Command wrapper rules:
 - Preserve stderr text in the raised error so CLI failures remain debuggable.
 - Do not use shell pipes, shell quoting, or shell interpolation.
 
-The wrapper must hide the desktop-app startup quirk described in review: if Obsidian is not already running, the first CLI command launches the app but does not perform the requested action. The implementation contract is therefore:
+The wrapper must hide the desktop-app startup quirk described in review: if Obsidian is not already running, the first CLI command may become the long-running app-launch process and not perform the requested action. The implementation contract is therefore:
 
-1. Run a cheap readiness probe command before the intended command.
-2. If the probe shows Obsidian is not yet ready, let that probe launch the app, then poll the same probe until it succeeds or a bounded startup timeout elapses.
-3. Only after readiness succeeds may the wrapper issue the intended mutating or read command.
+1. Keep an optional owned Obsidian process handle in the adapter.
+2. Before each intended CLI command, check whether the owned handle exists and is still alive. If it is alive, run the intended command normally.
+3. If there is no live owned handle, start the intended command itself first.
+4. If that command exits promptly, treat it as a normal command result and return it immediately. This is the path where another Obsidian instance was already running, so the handler does not own a process.
+5. If that command does not exit within a short launch-detection window, treat it as the long-running Obsidian app process, retain the handle, and do not assume the requested action happened.
+6. After adopting that handle, poll readiness by rerunning the same intended command as short-lived checks until one succeeds or a bounded startup timeout elapses.
+7. If the owned handle later exits, clear it and repeat the same launch-detection flow on the next command.
 
-`obsidian daily:path` is the recommended readiness probe because it is cheap, read-only, and already required elsewhere in the design.
+`obsidian daily:path` remains the cheapest generic readiness check when the adapter needs one for diagnostics or warm-up, but the default startup path should use the intended command itself so successful commands are not executed twice.
 
 Alternatives considered:
 - `subprocess.run(..., shell=True)`: rejected for quoting and injection risk.
@@ -469,7 +473,7 @@ Alternatives considered:
 - [Task ID instability after edits or moves] → Accept this as part of the contract and force clients to refresh context when an ID no longer resolves.
 - [Hash collisions within the current task set] → Number colliding IDs in source order so every current task still has a unique short handle.
 - [Static bearer tokens are secret material] → Keep tokens in environment-backed config, compare with `secrets.compare_digest`, and never log token values.
-- [Obsidian startup readiness is not the same as process launch] → Always run the readiness probe before the intended command, and hide first-launch behavior inside the adapter.
+- [Obsidian startup readiness is not the same as process launch] → Treat the intended command as the initial launch probe, retain the process only when that invocation becomes the long-running app launcher, and retry only after readiness is established.
 - [Path-based project grouping depends on vault conventions] → Scope the MVP to `notes/projects/{project}/.minutes.md` and treat other layouts as out of scope.
 - [Concurrent mutations can race] → Keep last-write-wins semantics for MVP and re-read or revalidate current state before every resolve.
 - [Some Obsidian CLI machine-readable shapes are not fully documented] → Capture real command output during implementation and keep parsing logic narrow to the observed shape.
@@ -478,7 +482,7 @@ Alternatives considered:
 
 1. Replace the demo hello-world MCP surface with the authenticated Obsidian-backed surface.
 2. Add the project-local `TokenVerifier` implementation and wire it into `FastMCP(..., auth=...)`.
-3. Implement the Obsidian CLI adapter layer around `asyncio.create_subprocess_exec(...)`, including readiness probing and explicit test-vault targeting.
+3. Implement the Obsidian CLI adapter layer around `asyncio.create_subprocess_exec(...)`, including owned-process launch detection, readiness retries, and explicit test-vault targeting.
 4. Implement daily-standup briefing assembly, append, and resolve on top of the verified CLI command set documented above.
 5. If implementation proves a direct import dependency is necessary, add it with `uv add` rather than editing dependency files by hand.
 6. Verify the server against `tests/vault/handler-test-vault/` and a real vault using journal notes plus project minutes notes under `notes/projects/`, with `obsidian://daily-standup` rendering the full Markdown briefing described above.
