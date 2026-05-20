@@ -107,6 +107,32 @@ def test_main_prints_pretty_redacted_startup_report(
     }
 
 
+def test_main_swallows_sigint_without_traceback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    vault_root = tmp_path / "vault"
+    config_path = _write_config(tmp_path, vault_root, bearer_token="secret-token")
+    runtime = EnvironmentApplication({"LMNOP_HANDLER_CONFIG": str(config_path)})
+    stub_mcp = _StubMcp(raise_keyboard_interrupt=True)
+
+    def build_mcp(_: object) -> _StubMcp:
+        return stub_mcp
+
+    monkeypatch.setattr(handler_module, "DEFAULT_RUNTIME", runtime)
+    monkeypatch.setattr(handler_module, "create_mcp", build_mcp)
+
+    handler_module.main()
+
+    captured = capsys.readouterr()
+    assert "Starting lmnop-handler with configuration" in captured.out
+    assert captured.err == ""
+    assert stub_mcp.run_kwargs == {
+        "transport": "http",
+        "host": runtime.settings().host,
+        "port": runtime.settings().port,
+    }
+
+
 def test_configured_token_verifier_accepts_valid_token() -> None:
     verifier = ConfiguredTokenVerifier(lambda: {"client": "secret"})
 
@@ -121,12 +147,16 @@ def test_configured_token_verifier_accepts_valid_token() -> None:
 
 class _StubMcp:
     run_kwargs: dict[str, object] | None
+    _raise_keyboard_interrupt: bool
 
-    def __init__(self) -> None:
+    def __init__(self, *, raise_keyboard_interrupt: bool = False) -> None:
         self.run_kwargs = None
+        self._raise_keyboard_interrupt = raise_keyboard_interrupt
 
     def run(self, *, transport: str, host: str, port: int) -> None:
         self.run_kwargs = {"transport": transport, "host": host, "port": port}
+        if self._raise_keyboard_interrupt:
+            raise KeyboardInterrupt
 
 
 def _write_config(
