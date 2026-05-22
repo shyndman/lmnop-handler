@@ -37,12 +37,12 @@ docker build -t lmnop-handler .
 Run it:
 
 ```bash
-mkdir -p ./tmp/obsidian/{config,vaults}
+mkdir -p ./lmnop-handler/{config,vaults}
 docker run --rm \
   -p 8000:8000 \
   -p 8080:8080 \
-  -v "$(pwd)/tmp/obsidian/config:/config" \
-  -v "$(pwd)/tmp/obsidian/vaults:/vaults" \
+  -v "$(pwd)/lmnop-handler/config:/config" \
+  -v "$(pwd)/lmnop-handler/vaults:/vaults" \
   -e LMNOP_HANDLER_BEARER_TOKENS='{"claude":"secret-token"}' \
   lmnop-handler
 ```
@@ -50,12 +50,11 @@ docker run --rm \
 Or use Compose:
 
 ```bash
-mkdir -p ./tmp/obsidian/{config,vaults}
 export LMNOP_HANDLER_BEARER_TOKENS='{"claude":"secret-token"}'
 docker compose up
 ```
 
-`compose.yml` pulls `ghcr.io/shyndman/lmnop-handler:latest`, publishes the handler on `8000` and the desktop on `8080`, and binds `./tmp/obsidian/{config,vaults}` into the container. Override the ports with `LMNOP_HANDLER_HTTP_PORT` and `LMNOP_HANDLER_DESKTOP_PORT` if those ports are already in use.
+`compose.yml` pulls `ghcr.io/shyndman/lmnop-handler:latest`, publishes the handler on `8000` and the desktop on `8080`, and stores `/config` and `/vaults` in Docker-managed named volumes. Override the ports with `LMNOP_HANDLER_HTTP_PORT` and `LMNOP_HANDLER_DESKTOP_PORT` if those ports are already in use.
 
 On first start the container seeds `/config/.config/lmnop-handler/config.yaml` from `config.yaml.sample`, rewrites `vault_root` to `/vaults`, copies the baked-in Obsidian app profile into `/config/.config/obsidian`, and seeds `/vaults/.obsidian` with the baked-in vault defaults.
 
