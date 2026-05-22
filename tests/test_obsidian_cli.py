@@ -100,3 +100,47 @@ def test_cli_reuses_short_lived_calls_when_owned_process_is_alive(
         assert await cli.run_text("daily:path") == "second\n"
 
     asyncio.run(run())
+
+
+def test_query_tasks_accepts_file_alias(tmp_path: Path) -> None:
+    journal_path = tmp_path / "journals" / "2026-05-17.md"
+    journal_path.parent.mkdir(parents=True)
+    _ = journal_path.write_text("- [ ] ship it\n", encoding="utf-8")
+
+    processes = [
+        FakeProcess(
+            returncode=0,
+            stdout=b'[{"file":"journals/2026-05-17.md","line":"1","status":" ","text":"ship it"}]',
+        )
+    ]
+    settings = Settings(vault_root=tmp_path, bearer_tokens={"client": "secret"})
+
+    async def spawn(*args: str, stdout: int | None, stderr: int | None) -> FakeProcess:
+        return await _spawn_factory(processes, *args, stdout=stdout, stderr=stderr)
+
+    cli = ObsidianCli(settings, spawn=spawn)
+
+    async def run() -> None:
+        items = await cli.query_tasks("todo")
+        assert len(items) == 1
+        assert items[0].path == "journals/2026-05-17.md"
+        assert items[0].line == 1
+        assert items[0].status == " "
+        assert items[0].text == "ship it"
+
+    asyncio.run(run())
+
+
+def test_query_tasks_accepts_no_tasks_text(tmp_path: Path) -> None:
+    processes = [FakeProcess(returncode=0, stdout=b"No tasks found.\n")]
+    settings = Settings(vault_root=tmp_path, bearer_tokens={"client": "secret"})
+
+    async def spawn(*args: str, stdout: int | None, stderr: int | None) -> FakeProcess:
+        return await _spawn_factory(processes, *args, stdout=stdout, stderr=stderr)
+
+    cli = ObsidianCli(settings, spawn=spawn)
+
+    async def run() -> None:
+        assert await cli.query_tasks("todo") == []
+
+    asyncio.run(run())

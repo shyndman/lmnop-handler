@@ -97,7 +97,7 @@ class ListLine(BaseModel):
 class RawTaskPayload(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore", frozen=True)
 
-    path: str
+    path: str = Field(validation_alias=AliasChoices("path", "file"))
     line: int = Field(ge=1)
     text: str = Field(validation_alias=AliasChoices("text", "task", "content", "body"))
     status: str | None = Field(
@@ -471,6 +471,8 @@ def stripped_task_body(raw_line: str) -> str:
 
 
 def _coerce_task_items(payload: object) -> list[ParsedTaskItem]:
+    if isinstance(payload, str) and payload.strip() in {"", "No tasks found."}:
+        return []
     parsed = (
         TASK_PAYLOAD_ADAPTER.validate_json(payload)
         if isinstance(payload, str)
