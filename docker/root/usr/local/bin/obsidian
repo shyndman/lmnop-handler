@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+exec /squashfs-root/obsidian \
+    --no-sandbox \
+    --no-xshm \
+    --disable-dev-shm-usage \
+    --disable-gpu \
+    --disable-software-rasterizer \
+    "$@"

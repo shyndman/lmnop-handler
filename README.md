@@ -24,6 +24,35 @@ Then start the server:
 uv run lmnop-handler
 ```
 
+## Docker
+
+The container runs both `lmnop-handler` on port `8000` and the KasmVNC desktop on port `8080`.
+
+Build it:
+
+```bash
+docker build -t lmnop-handler .
+```
+
+Run it:
+
+```bash
+mkdir -p ./tmp/obsidian/{config,vaults}
+docker run --rm \
+  -p 8000:8000 \
+  -p 8080:8080 \
+  -v "$(pwd)/tmp/obsidian/config:/config" \
+  -v "$(pwd)/tmp/obsidian/vaults:/vaults" \
+  -e LMNOP_HANDLER_BEARER_TOKENS='{"claude":"secret-token"}' \
+  lmnop-handler
+```
+
+On first start the container seeds `/config/.config/lmnop-handler/config.yaml` from `config.yaml.sample`, rewrites `vault_root` to `/vaults`, copies the baked-in Obsidian app profile into `/config/.config/obsidian`, and seeds `/vaults/.obsidian` with the baked-in vault defaults.
+
+That Obsidian profile is only copied when `/config/.config/obsidian/obsidian.json` is missing. After first boot, the persisted `/config` volume remains the source of truth for app-level Obsidian state.
+
+The vault defaults are only copied when `/vaults/.obsidian` is missing. They reflect the baked-in clean base vault state, including Self-hosted LiveSync already installed and enabled, but without any LiveSync remote configuration.
+
 On startup the server prints a readable configuration summary with bearer tokens redacted down to their first three characters.
 
 The MCP endpoint is available at:

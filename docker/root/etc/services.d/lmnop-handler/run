@@ -1,0 +1,2 @@
+#!/usr/bin/with-contenv bash
+exec /command/s6-setuidgid abc /app/.venv/bin/lmnop-handler

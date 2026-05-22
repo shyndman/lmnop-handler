@@ -1,0 +1,33 @@
+#!/usr/bin/with-contenv bash
+set -euo pipefail
+
+config_dir=/config/.config/lmnop-handler
+config_path=${config_dir}/config.yaml
+obsidian_config_dir=/config/.config/obsidian
+obsidian_defaults_dir=/defaults/obsidian-profile
+vault_obsidian_dir=/vaults/.obsidian
+vault_defaults_dir=/defaults/vault-profile/.obsidian
+
+mkdir -p /vaults "${config_dir}" "${obsidian_config_dir}"
+
+if [[ ! -d "${vault_obsidian_dir}" ]]; then
+    mkdir -p "${vault_obsidian_dir}"
+    cp -R "${vault_defaults_dir}/." "${vault_obsidian_dir}/"
+    echo "**** Seeded default vault config at ${vault_obsidian_dir}. ****"
+fi
+
+if [[ ! -f "${obsidian_config_dir}/obsidian.json" ]]; then
+    cp -R "${obsidian_defaults_dir}/." "${obsidian_config_dir}/"
+    echo "**** Seeded default Obsidian app config at ${obsidian_config_dir}. ****"
+fi
+
+if [[ ! -f "${config_path}" ]]; then
+    cp /app/config.yaml.sample "${config_path}"
+    sed -i \
+        -e 's|^vault_root: .*|vault_root: /vaults|' \
+        -e 's|^obsidian_bin: .*|obsidian_bin: obsidian|' \
+        "${config_path}"
+    echo "**** Created default lmnop-handler config at ${config_path}. ****"
+fi
+
+chown -R abc:abc /vaults "${config_dir}" "${obsidian_config_dir}"
