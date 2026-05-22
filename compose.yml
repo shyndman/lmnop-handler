@@ -1,0 +1,16 @@
+services:
+  handler:
+    build:
+      context: .
+    image: lmnop-handler
+    restart: unless-stopped
+    environment:
+      # Example: {"claude":"secret-token"}
+      LMNOP_HANDLER_BEARER_TOKENS: ${LMNOP_HANDLER_BEARER_TOKENS:?set LMNOP_HANDLER_BEARER_TOKENS to a JSON bearer token map}
+      OBSIDIAN_AUTOSTART: ${OBSIDIAN_AUTOSTART:-true}
+    ports:
+      - "${LMNOP_HANDLER_HTTP_PORT:-8000}:8000"
+      - "${LMNOP_HANDLER_DESKTOP_PORT:-8080}:8080"
+    volumes:
+      - ./tmp/obsidian/config:/config
+      - ./tmp/obsidian/vaults:/vaults
