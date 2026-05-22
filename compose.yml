@@ -1,8 +1,6 @@
 services:
   handler:
-    build:
-      context: .
-    image: lmnop-handler
+    image: ghcr.io/shyndman/lmnop-handler:latest
     restart: unless-stopped
     environment:
       # Example: {"claude":"secret-token"}
