@@ -425,31 +425,43 @@ def create_mcp(runtime: HandlerApplication | EnvironmentApplication) -> FastMCP:
         )
 
     @mcp.tool(
-        name="append",
+        name="append_note",
         annotations={
             "destructiveHint": True,
             "idempotentHint": False,
             "openWorldHint": False,
         },
     )
-    async def append_tool(target: str, content: str, ctx: Context) -> dict[str, object]:
+    async def append_note_tool(
+        target: str, content: str, ctx: Context
+    ) -> dict[str, object]:
         return (await runtime.append(ctx.client_id or "", target, content)).model_dump(
             mode="python"
         )
 
     @mcp.tool(
-        name="resolve",
+        name="resolve_task",
         annotations={
             "destructiveHint": True,
             "idempotentHint": False,
             "openWorldHint": False,
         },
     )
-    async def resolve_tool(id: str, resolution: str, ctx: Context) -> dict[str, object]:
+    async def resolve_task_tool(
+        id: str, resolution: str, ctx: Context
+    ) -> dict[str, object]:
         return (await runtime.resolve(ctx.client_id or "", id, resolution)).model_dump(
             mode="python"
         )
 
-    _ = (daily_standup_resource, append_tool, resolve_tool)
+    from .transforms import StandupTool
 
+    _ = (daily_standup_resource, append_note_tool, resolve_task_tool)
+
+    mcp.add_transform(
+        StandupTool(
+            resource_uri=RESOURCE_URI,
+            resource_description=RESOURCE_DESCRIPTION,
+        )
+    )
     return mcp

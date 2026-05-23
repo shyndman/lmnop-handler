@@ -5,8 +5,11 @@ import socket
 from pathlib import Path
 from typing import cast
 
+import pytest
 from fastmcp import Client
-from mcp.types import TextResourceContents
+from fastmcp.client.client import CallToolResult
+from mcp.shared.exceptions import McpError
+from mcp.types import TextContent
 
 from lmnop.handler.models import AppendResult, ResolveResult
 from lmnop.handler.server import HandlerApplication, create_mcp
@@ -34,24 +37,28 @@ def test_client_flow_without_authentication(tmp_path: Path) -> None:
             async with Client(f"http://127.0.0.1:{port}/mcp") as client:
                 resources = await client.list_resources()
                 tools = await client.list_tools()
-                assert any(
-                    str(resource.uri) == "obsidian://daily-standup"
-                    for resource in resources
+                assert resources == []
+                assert {tool.name for tool in tools} == {
+                    "append_note",
+                    "resolve_task",
+                    "start_daily_standup",
+                }
+                with pytest.raises(McpError, match="Unknown resource"):
+                    _ = await client.read_resource("obsidian://daily-standup")
+                standup: CallToolResult = await client.call_tool(
+                    "start_daily_standup", {}
                 )
-                assert {tool.name for tool in tools} == {"append", "resolve"}
-                briefing = await client.read_resource("obsidian://daily-standup")
-                first = briefing[0]
-                assert isinstance(first, TextResourceContents)
-                assert first.mimeType == "text/markdown"
-                assert "Daily Standup" in first.text
+                first_content = standup.content[0]
+                assert isinstance(first_content, TextContent)
+                assert "Daily Standup" in first_content.text
                 append_result = await client.call_tool(
-                    "append", {"target": "daily", "content": "- [ ] Test new task"}
+                    "append_note", {"target": "daily", "content": "- [ ] Test new task"}
                 )
                 appended = AppendResult.model_validate(cast(object, append_result.data))
                 assert appended.success is True
                 task_id = next(iter(appended.new_tasks))
                 resolve_result = await client.call_tool(
-                    "resolve", {"id": task_id, "resolution": "done"}
+                    "resolve_task", {"id": task_id, "resolution": "done"}
                 )
                 resolved = ResolveResult.model_validate(
                     cast(object, resolve_result.data)
