@@ -29,6 +29,18 @@ from .obsidian import (
 
 RESOURCE_URI = "obsidian://daily-standup"
 RESOURCE_NAME = "Daily Standup"
+# TODO it wasn't clear that using a target of "daily" is how you write to today's note
+# TODO model should be more proactive in taking notes -- it asks for confirmation visually
+# TODO we should supply the task format for things like due dates, because the model, quite
+# reasonably, wrote down notes in today's journal thinking that meant they were due today, or active
+# today. they are neither.
+# TODO we use an outliner style -- all notes that are taken should be bullets or nested bullets
+# TODO include the entire set of statuses, which we have in docs/
+# TODO the error message when they get the target path wrong is SO bad. it talks about paths, and
+# this is an entirely pathless interface. instead, we should provide a list of projects.
+#   * There's another possibility here, and it's that we *always* write to the daily note, and use tags like
+#     #project/eavesdrop or #project/uminer etc etc. I kind of like that, because we can use backlinks
+#     we can use backlinks and summarization bots to fill in the main article (NOT IN SCOPE FOR THIS WORK)
 RESOURCE_DESCRIPTION = (
     "The authoritative briefing for starting today's standup. Read this first when "
     "beginning the daily standup workflow. It contains the workflow guidance and the "
