@@ -28,8 +28,6 @@ DEFAULT_READINESS_POLL_INTERVAL = 0.25
 DEFAULT_COMMAND_TIMEOUT = 15.0
 DEFAULT_CONFIG_DIRNAME = "lmnop-handler"
 DEFAULT_CONFIG_FILENAME = "config.yaml"
-REDACTED_TOKEN_SUFFIX = "…[redacted]"
-
 ENV_CONFIG = "LMNOP_HANDLER_CONFIG"
 ENV_HOST = "LMNOP_HANDLER_HOST"
 ENV_PORT = "LMNOP_HANDLER_PORT"
@@ -64,7 +62,7 @@ class Settings(BaseModel):
     port: int = Field(default=DEFAULT_PORT, ge=1)
     obsidian_bin: str = DEFAULT_OBSIDIAN_BIN
     vault_root: Path
-    bearer_tokens: dict[str, str]
+    bearer_tokens: dict[str, str] = Field(default_factory=dict)
     vault_selector: str | None = None
     recent_daily_note_count: int = Field(default=DEFAULT_RECENT_DAILY_NOTE_COUNT, ge=1)
     upcoming_days: int = Field(default=DEFAULT_UPCOMING_DAYS, ge=0)
@@ -90,8 +88,6 @@ class Settings(BaseModel):
     @field_validator("bearer_tokens")
     @classmethod
     def validate_bearer_tokens(cls, value: dict[str, str]) -> dict[str, str]:
-        if not value:
-            raise ValueError("At least one bearer token is required")
         for client_id, token in value.items():
             if not client_id:
                 raise ValueError("Bearer token client IDs must be non-empty")
@@ -149,10 +145,9 @@ def format_settings_report(loaded: LoadedSettings) -> str:
         f"    Readiness poll interval: {settings.readiness_poll_interval}s",
         f"    Command: {settings.command_timeout}s",
         "",
-        "  Bearer tokens",
+        "  Authentication",
+        "    Disabled: bearer token settings are currently ignored",
     ]
-    for client_id, token in sorted(settings.bearer_tokens.items()):
-        lines.append(f"    {client_id}: {_format_token_preview(token)}")
     return "\n".join(lines)
 
 
@@ -253,10 +248,3 @@ def _parse_bearer_tokens(raw_tokens: str) -> dict[str, str]:
         if not raw_token:
             raise ConfigError(f"{ENV_BEARER_TOKENS} values must be non-empty strings")
     return decoded
-
-
-def _format_token_preview(token: str) -> str:
-    prefix = token[:3]
-    if len(token) > 3:
-        return f"{prefix}{REDACTED_TOKEN_SUFFIX}"
-    return f"{prefix}[redacted]"

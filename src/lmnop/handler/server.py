@@ -11,7 +11,6 @@ from fastmcp import Context, FastMCP
 from fastmcp.resources import ResourceContent, ResourceResult
 from pydantic import BaseModel, ConfigDict, Field
 
-from .auth import ConfiguredTokenVerifier
 from .config import (
     LoadedSettings,
     Settings,
@@ -95,10 +94,6 @@ class HandlerApplication:
     @property
     def settings(self) -> Settings:
         return self._settings
-
-    @property
-    def auth_verifier(self) -> ConfiguredTokenVerifier:
-        return ConfiguredTokenVerifier(lambda: self._settings.bearer_tokens)
 
     async def daily_standup(self, client_id: str) -> str:
         today_path = await self._cli.daily_path()
@@ -379,17 +374,11 @@ class EnvironmentApplication:
     _env: Mapping[str, str]
     _application: HandlerApplication | None
     _loaded_settings: LoadedSettings | None
-    _verifier: ConfiguredTokenVerifier
 
     def __init__(self, env: Mapping[str, str] | None = None):
         self._env = env or os.environ
         self._application = None
         self._loaded_settings = None
-        self._verifier = ConfiguredTokenVerifier(self._load_tokens)
-
-    @property
-    def auth_verifier(self) -> ConfiguredTokenVerifier:
-        return self._verifier
 
     def loaded_settings(self) -> LoadedSettings:
         if self._loaded_settings is None:
@@ -418,15 +407,9 @@ class EnvironmentApplication:
     ) -> ResolveResult:
         return await self.application().resolve(client_id, task_id, resolution)
 
-    def _load_tokens(self) -> Mapping[str, str]:
-        try:
-            return self.settings().bearer_tokens
-        except Exception:
-            return {}
-
 
 def create_mcp(runtime: HandlerApplication | EnvironmentApplication) -> FastMCP:
-    mcp = FastMCP("lmnop:handler", auth=runtime.auth_verifier)
+    mcp = FastMCP("lmnop:handler")
 
     @mcp.resource(
         RESOURCE_URI,

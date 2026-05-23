@@ -57,7 +57,6 @@ def test_cli_retries_after_launch_detection(tmp_path: Path) -> None:
     ]
     settings = Settings(
         vault_root=tmp_path,
-        bearer_tokens={"client": "secret"},
         launch_detection_timeout=0.01,
         readiness_timeout=0.1,
         readiness_poll_interval=0.01,
@@ -84,7 +83,6 @@ def test_cli_reuses_short_lived_calls_when_owned_process_is_alive(
     ]
     settings = Settings(
         vault_root=tmp_path,
-        bearer_tokens={"client": "secret"},
         launch_detection_timeout=0.01,
         readiness_timeout=0.1,
         readiness_poll_interval=0.01,
@@ -113,7 +111,7 @@ def test_query_tasks_accepts_file_alias(tmp_path: Path) -> None:
             stdout=b'[{"file":"journals/2026-05-17.md","line":"1","status":" ","text":"ship it"}]',
         )
     ]
-    settings = Settings(vault_root=tmp_path, bearer_tokens={"client": "secret"})
+    settings = Settings(vault_root=tmp_path)
 
     async def spawn(*args: str, stdout: int | None, stderr: int | None) -> FakeProcess:
         return await _spawn_factory(processes, *args, stdout=stdout, stderr=stderr)
@@ -133,7 +131,7 @@ def test_query_tasks_accepts_file_alias(tmp_path: Path) -> None:
 
 def test_query_tasks_accepts_no_tasks_text(tmp_path: Path) -> None:
     processes = [FakeProcess(returncode=0, stdout=b"No tasks found.\n")]
-    settings = Settings(vault_root=tmp_path, bearer_tokens={"client": "secret"})
+    settings = Settings(vault_root=tmp_path)
 
     async def spawn(*args: str, stdout: int | None, stderr: int | None) -> FakeProcess:
         return await _spawn_factory(processes, *args, stdout=stdout, stderr=stderr)

@@ -13,7 +13,7 @@ from lmnop.handler.server import HandlerApplication, create_mcp
 from tests.helpers import FakeObsidianCli, make_settings, seed_vault
 
 
-def test_authenticated_client_flow_and_unauthorized_rejection(tmp_path: Path) -> None:
+def test_client_flow_without_authentication(tmp_path: Path) -> None:
     _ = seed_vault(tmp_path)
     settings = make_settings(tmp_path)
     cli = FakeObsidianCli(settings)
@@ -31,7 +31,7 @@ def test_authenticated_client_flow_and_unauthorized_rejection(tmp_path: Path) ->
         )
         try:
             await asyncio.sleep(0.25)
-            async with Client(f"http://127.0.0.1:{port}/mcp", auth="secret") as client:
+            async with Client(f"http://127.0.0.1:{port}/mcp") as client:
                 resources = await client.list_resources()
                 tools = await client.list_tools()
                 assert any(
@@ -57,14 +57,6 @@ def test_authenticated_client_flow_and_unauthorized_rejection(tmp_path: Path) ->
                     cast(object, resolve_result.data)
                 )
                 assert resolved.resolution == "done"
-
-            try:
-                async with Client(f"http://127.0.0.1:{port}/mcp") as client:
-                    _ = await client.read_resource("obsidian://daily-standup")
-            except Exception as exc:
-                assert "401" in str(exc) or "Unauthorized" in str(exc)
-            else:
-                raise AssertionError("Expected unauthorized client to fail")
         finally:
             _ = server_task.cancel()
             try:

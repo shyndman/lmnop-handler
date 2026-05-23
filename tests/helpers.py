@@ -152,12 +152,9 @@ class FakeObsidianCli:
         return tasks
 
 
-def make_settings(
-    vault_root: Path, *, tokens: dict[str, str] | None = None
-) -> Settings:
+def make_settings(vault_root: Path) -> Settings:
     return Settings(
         vault_root=vault_root,
-        bearer_tokens=tokens or {"client": "secret"},
         vault_selector="test",
     )
 

@@ -6,8 +6,6 @@ port: 8000
 obsidian_bin: obsidian
 vault_root: /absolute/path/to/your/vault
 vault_selector: null
-bearer_tokens:
-  claude: CHANGE_ME
 recent_daily_note_count: 2
 upcoming_days: 7
 launch_detection_timeout: 0.5

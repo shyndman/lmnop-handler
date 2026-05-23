@@ -4,7 +4,7 @@ Obsidian-backed FastMCP server over Streamable HTTP.
 
 ## Run
 
-Copy `config.yaml.sample` to `~/.config/lmnop-handler/config.yaml` and fill in the bearer token:
+Copy `config.yaml.sample` to `~/.config/lmnop-handler/config.yaml`:
 
 ```bash
 mkdir -p ~/.config/lmnop-handler
@@ -15,7 +15,6 @@ Environment variables still override file values when needed:
 
 ```bash
 export LMNOP_HANDLER_PORT=9000
-export LMNOP_HANDLER_BEARER_TOKENS='{"claude":"secret-token"}'
 ```
 
 Then start the server:
@@ -43,14 +42,12 @@ docker run --rm \
   -p 8080:8080 \
   -v "$(pwd)/lmnop-handler/config:/config" \
   -v "$(pwd)/lmnop-handler/vaults:/vaults" \
-  -e LMNOP_HANDLER_BEARER_TOKENS='{"claude":"secret-token"}' \
   lmnop-handler
 ```
 
 Or use Compose:
 
 ```bash
-export LMNOP_HANDLER_BEARER_TOKENS='{"claude":"secret-token"}'
 docker compose up
 ```
 
@@ -62,7 +59,7 @@ That Obsidian profile is only copied when `/config/.config/obsidian/obsidian.jso
 
 The vault defaults are only copied when `/vaults/.obsidian` is missing. They reflect the baked-in clean base vault state, including Self-hosted LiveSync already installed and enabled, but without any LiveSync remote configuration.
 
-On startup the server prints a readable configuration summary with bearer tokens redacted down to their first three characters.
+Authentication is currently disabled. The server accepts unauthenticated MCP requests and ignores any configured bearer token settings.
 
 The MCP endpoint is available at:
 
@@ -89,7 +86,7 @@ from fastmcp import Client
 
 
 async def main() -> None:
-    async with Client("http://127.0.0.1:8000/mcp", auth="secret-token") as client:
+    async with Client("http://127.0.0.1:8000/mcp") as client:
         briefing = await client.read_resource("obsidian://daily-standup")
         print(briefing[0].text)
 

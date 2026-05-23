@@ -3,8 +3,6 @@ services:
     image: ghcr.io/shyndman/lmnop-handler:latest
     restart: unless-stopped
     environment:
-      # Example: {"claude":"secret-token"}
-      LMNOP_HANDLER_BEARER_TOKENS: ${LMNOP_HANDLER_BEARER_TOKENS:?set LMNOP_HANDLER_BEARER_TOKENS to a JSON bearer token map}
       OBSIDIAN_AUTOSTART: ${OBSIDIAN_AUTOSTART:-true}
     ports:
       - "${LMNOP_HANDLER_HTTP_PORT:-8000}:8000"

@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
 
 import lmnop.handler as handler_module
-from lmnop.handler.auth import ConfiguredTokenVerifier
 from lmnop.handler.config import ConfigError, load_settings
 from lmnop.handler.server import EnvironmentApplication
 
@@ -31,6 +29,16 @@ def test_load_settings_reads_yaml_config(tmp_path: Path) -> None:
     assert settings.port == 8123
     assert settings.vault_root == vault_root.resolve()
     assert settings.bearer_tokens == {"claude": "secret-token"}
+
+
+def test_load_settings_allows_missing_bearer_tokens(tmp_path: Path) -> None:
+    vault_root = tmp_path / "vault"
+    config_path = _write_config(tmp_path, vault_root, extra_lines=["port: 8123"])
+
+    settings = load_settings({"LMNOP_HANDLER_CONFIG": str(config_path)})
+
+    assert settings.port == 8123
+    assert settings.bearer_tokens == {}
 
 
 def test_load_settings_env_overrides_yaml(tmp_path: Path) -> None:
@@ -97,8 +105,8 @@ def test_main_prints_pretty_redacted_startup_report(
     assert "Starting lmnop-handler with configuration" in captured.out
     assert "Config file:" in captured.out
     assert "Vault root:" in captured.out
-    assert "Bearer tokens" in captured.out
-    assert "sec…[redacted]" in captured.out
+    assert "Authentication" in captured.out
+    assert "Disabled: bearer token settings are currently ignored" in captured.out
     assert "secret-token" not in captured.out
     assert stub_mcp.run_kwargs == {
         "transport": "http",
@@ -133,18 +141,6 @@ def test_main_swallows_sigint_without_traceback(
     }
 
 
-def test_configured_token_verifier_accepts_valid_token() -> None:
-    verifier = ConfiguredTokenVerifier(lambda: {"client": "secret"})
-
-    async def run() -> None:
-        assert await verifier.verify_token("wrong") is None
-        token = await verifier.verify_token("secret")
-        assert token is not None
-        assert token.client_id == "client"
-
-    asyncio.run(run())
-
-
 class _StubMcp:
     run_kwargs: dict[str, object] | None
     _raise_keyboard_interrupt: bool
@@ -163,16 +159,14 @@ def _write_config(
     tmp_path: Path,
     vault_root: Path,
     *,
-    bearer_token: str,
+    bearer_token: str | None = None,
     extra_lines: list[str] | None = None,
 ) -> Path:
     vault_root.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
-    lines = [
-        f"vault_root: {vault_root}",
-        "bearer_tokens:",
-        f"  claude: {bearer_token}",
-    ]
+    lines = [f"vault_root: {vault_root}"]
+    if bearer_token is not None:
+        lines.extend(["bearer_tokens:", f"  claude: {bearer_token}"])
     if extra_lines is not None:
         lines.extend(extra_lines)
     _ = config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
