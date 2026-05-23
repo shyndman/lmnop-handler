@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from datetime import date, timedelta
 from pathlib import Path, PurePosixPath
 from typing import ClassVar, Protocol, cast, final
@@ -25,6 +25,7 @@ TASK_LINE_PATTERN = re.compile(
 )
 LIST_LINE_PATTERN = re.compile(r"^(?P<indent>\s*)(?P<bullet>[-*+])\s+(?P<text>.*)$")
 SCHEDULED_PATTERN = re.compile(r"⏳\s*(\d{4}-\d{2}-\d{2})")
+TAG_PATTERN = re.compile(r"(?<![\w/])#(?P<tag>[A-Za-z0-9_/-]+)")
 
 SleepFn = Callable[[float], Awaitable[None]]
 
@@ -181,6 +182,10 @@ class ObsidianCli:
             if line.strip()
         ]
         return sorted(paths)
+
+    async def list_tags(self) -> list[str]:
+        output = await self.run_text("tags")
+        return sorted(_normalize_tags(output.splitlines()))
 
     async def query_tasks(
         self, selector: str, *, path: str | None = None
@@ -380,13 +385,25 @@ def normalize_list_content(content: str) -> str:
         if not raw_line.strip():
             normalized_lines.append(raw_line)
             continue
-        if raw_line[:1].isspace() or LIST_LINE_PATTERN.match(raw_line):
+        if LIST_LINE_PATTERN.match(raw_line):
             normalized_lines.append(raw_line)
             continue
-        normalized_lines.append(f"- {raw_line}")
+        indent_length = len(raw_line) - len(raw_line.lstrip())
+        normalized_lines.append(f"{raw_line[:indent_length]}- {raw_line.lstrip()}")
     if not normalized_lines:
         return ""
     return "\n".join(normalized_lines)
+
+
+def _normalize_tags(values: Iterable[str]) -> set[str]:
+    tags: set[str] = set()
+    for value in values:
+        stripped = value.strip()
+        if not stripped:
+            continue
+        tag = stripped if stripped.startswith("#") else f"#{stripped}"
+        tags.add(tag)
+    return tags
 
 
 def render_note_block(note_text: str, target_lines: dict[int, str]) -> str:

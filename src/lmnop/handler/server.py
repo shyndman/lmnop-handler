@@ -29,18 +29,6 @@ from .obsidian import (
 
 RESOURCE_URI = "obsidian://daily-standup"
 RESOURCE_NAME = "Daily Standup"
-# TODO it wasn't clear that using a target of "daily" is how you write to today's note
-# TODO model should be more proactive in taking notes -- it asks for confirmation visually
-# TODO we should supply the task format for things like due dates, because the model, quite
-# reasonably, wrote down notes in today's journal thinking that meant they were due today, or active
-# today. they are neither.
-# TODO we use an outliner style -- all notes that are taken should be bullets or nested bullets
-# TODO include the entire set of statuses, which we have in docs/
-# TODO the error message when they get the target path wrong is SO bad. it talks about paths, and
-# this is an entirely pathless interface. instead, we should provide a list of projects.
-#   * There's another possibility here, and it's that we *always* write to the daily note, and use tags like
-#     #project/eavesdrop or #project/uminer etc etc. I kind of like that, because we can use backlinks
-#     we can use backlinks and summarization bots to fill in the main article (NOT IN SCOPE FOR THIS WORK)
 RESOURCE_DESCRIPTION = (
     "The authoritative briefing for starting today's standup. Read this first when "
     "beginning the daily standup workflow. It contains the workflow guidance and the "
@@ -60,32 +48,15 @@ class Section(BaseModel):
     groups: list[tuple[str, str]] = Field(default_factory=list)
 
 
-class ProjectTarget(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
-
-    value: str = Field(min_length=1)
-
-    @classmethod
-    def from_raw(cls, value: str) -> ProjectTarget:
-        target = cls(value=value)
-        normalized = PurePosixPath(target.value)
-        if normalized.is_absolute() or target.value in {".", ".."}:
-            raise ValueError("project target must be a single relative path segment")
-        if len(normalized.parts) != 1:
-            raise ValueError("project target must be a single relative path segment")
-        return target
-
-
 class ObsidianCliLike(Protocol):
     async def daily_path(self) -> str: ...
     async def read_note(self, path: str) -> str: ...
     async def list_markdown_files(self, folder: str) -> list[str]: ...
+    async def list_tags(self) -> list[str]: ...
     async def query_tasks(
         self, selector: str, *, path: str | None = None
     ) -> list[TaskRecord]: ...
     async def append_daily(self, content: str) -> None: ...
-    async def append_note(self, path: str, content: str) -> None: ...
-    async def create_note(self, path: str, content: str) -> None: ...
     async def mutate_task(self, ref: str, resolution: str) -> None: ...
     def resolve_vault_path(self, path: str) -> Path: ...
     def snapshot_vault(self) -> Mapping[str, FileSnapshot]: ...
@@ -181,14 +152,14 @@ class HandlerApplication:
             ),
         ]
 
-        return self._render_standup_markdown(sections)
+        return self._render_standup_markdown(sections, await self._project_tags())
 
-    async def append(self, client_id: str, target: str, content: str) -> AppendResult:
+    async def append(self, client_id: str, content: str) -> AppendResult:
         normalized = normalize_list_content(content)
         if not normalized.strip():
             raise ValueError("append content must contain at least one list item")
 
-        target_path = await self._target_path(target)
+        target_path = await self._cli.daily_path()
         target_file = self._cli.resolve_vault_path(target_path)
         before_line_count = (
             len(target_file.read_text(encoding="utf-8").splitlines())
@@ -196,13 +167,7 @@ class HandlerApplication:
             else 0
         )
 
-        if target == "daily":
-            await self._cli.append_daily(normalized)
-            target_path = await self._cli.daily_path()
-        elif target_file.exists():
-            await self._cli.append_note(target_path, normalized)
-        else:
-            await self._cli.create_note(target_path, normalized)
+        await self._cli.append_daily(normalized)
 
         full_id_map = await self._build_full_task_id_map()
         new_tasks = self._extract_new_tasks(target_path, before_line_count, full_id_map)
@@ -257,6 +222,10 @@ class HandlerApplication:
         all_paths = await self._cli.list_markdown_files(folder)
         prior = [path for path in sorted(all_paths) if path < today_path]
         return prior[-self._settings.recent_daily_note_count :]
+
+    async def _project_tags(self) -> list[str]:
+        tags = await self._cli.list_tags()
+        return sorted(tag for tag in tags if tag.startswith("#project/"))
 
     async def _load_tasks_for_path(self, path: str) -> list[TaskRecord]:
         seen: set[tuple[str, int, str, str]] = set()
@@ -331,12 +300,6 @@ class HandlerApplication:
             )
         return rendered
 
-    async def _target_path(self, target: str) -> str:
-        if target == "daily":
-            return await self._cli.daily_path()
-        project = ProjectTarget.from_raw(target)
-        return f"notes/projects/{project.value}/.minutes.md"
-
     def _extract_new_tasks(
         self,
         path: str,
@@ -356,7 +319,9 @@ class HandlerApplication:
             if task.ref in ids_by_ref
         }
 
-    def _render_standup_markdown(self, sections: list[Section]) -> str:
+    def _render_standup_markdown(
+        self, sections: list[Section], project_tags: list[str]
+    ) -> str:
         lines = [
             "# Daily Standup",
             "",
@@ -367,6 +332,34 @@ class HandlerApplication:
             "2. Review Upcoming for near-term preparation.",
             "3. For each Recent unscheduled item, pick a date or say skip.",
             "4. Review Recent resolutions and Recent notes for continuity.",
+            "5. Capture notes with append_note as bullets or nested bullets.",
+            (
+                "6. When a note has to do with a project, it MUST be marked "
+                "with the matching #project/ tag."
+            ),
+            "7. Available project tags:",
+            *(f"   - {tag}" for tag in project_tags),
+            (
+                "8. Preserve task status markers: [ ] unchecked, [x] checked, "
+                "[>] rescheduled, [<] scheduled, [!] important, [-] cancelled, "
+                "[/] in progress, [?] question, [*] star, [n] note, [l] location, "
+                "[i] information, [I] idea, [S] amount, [p] pro, [c] con, "
+                '[b] bookmark, ["] quote.'
+            ),
+            "",
+            "Task emoji syntax (from docs/emoji_task_format.md):",
+            (
+                "- Dates: ➕ created, ⏳ scheduled, 🛫 start, 📅 due, "
+                "✅ done, ❌ cancelled; all dates use YYYY-MM-DD."
+            ),
+            "- Priorities: ⏬ lowest, 🔽 low, no marker normal, 🔼 medium, ⏫ high, 🔺 highest.",
+            "- Recurrence: 🔁 followed by the rule, e.g. 🔁 every day when done.",
+            "- On completion: 🏁 keep or 🏁 delete.",
+            "- Dependencies: 🆔 task-id defines an id; ⛔ id1,id2 blocks on ids.",
+            (
+                "- Daily-note placement alone does not make a task due today or active "
+                "today; use an explicit 📅, ⏳, or 🛫 date marker."
+            ),
         ]
         for section in sections:
             lines.extend(
@@ -411,8 +404,8 @@ class EnvironmentApplication:
     async def daily_standup(self, client_id: str) -> str:
         return await self.application().daily_standup(client_id)
 
-    async def append(self, client_id: str, target: str, content: str) -> AppendResult:
-        return await self.application().append(client_id, target, content)
+    async def append(self, client_id: str, content: str) -> AppendResult:
+        return await self.application().append(client_id, content)
 
     async def resolve(
         self, client_id: str, task_id: str, resolution: str
@@ -438,16 +431,20 @@ def create_mcp(runtime: HandlerApplication | EnvironmentApplication) -> FastMCP:
 
     @mcp.tool(
         name="append_note",
+        description=(
+            "Append content to today's daily note. During standup, use this proactively "
+            "to capture decisions, context, and new tasks as they arise; do not ask "
+            "for confirmation first unless the content is ambiguous. Notes are stored "
+            "as outliner bullets; plain lines are converted to bullets."
+        ),
         annotations={
             "destructiveHint": True,
             "idempotentHint": False,
             "openWorldHint": False,
         },
     )
-    async def append_note_tool(
-        target: str, content: str, ctx: Context
-    ) -> dict[str, object]:
-        return (await runtime.append(ctx.client_id or "", target, content)).model_dump(
+    async def append_note_tool(content: str, ctx: Context) -> dict[str, object]:
+        return (await runtime.append(ctx.client_id or "", content)).model_dump(
             mode="python"
         )
 

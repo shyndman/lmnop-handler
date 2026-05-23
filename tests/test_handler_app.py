@@ -68,6 +68,31 @@ def test_daily_standup_reads_repo_fixture_vault() -> None:
     asyncio.run(run())
 
 
+def test_daily_standup_includes_project_tags(tmp_path: Path) -> None:
+    _ = seed_vault(tmp_path)
+    _ = (tmp_path / "journals" / "project-tags.md").write_text(
+        "- #project/zulu note\n- #project/alpha note\n- #area/home note\n",
+        encoding="utf-8",
+    )
+    settings = make_settings(tmp_path)
+    cli = FakeObsidianCli(settings)
+    app = HandlerApplication(settings, cli=cli)
+
+    async def run() -> None:
+        briefing = await app.daily_standup("client")
+        project_guidance = " ".join(
+            [
+                "When a note has to do with a project, it MUST be marked",
+                "with the matching #project/ tag.",
+            ]
+        )
+        assert project_guidance in briefing
+        assert "   - #project/alpha\n   - #project/zulu" in briefing
+        assert "#area/home" not in briefing
+
+    asyncio.run(run())
+
+
 def test_append_daily_returns_new_task_ids(tmp_path: Path) -> None:
     _ = seed_vault(tmp_path)
     settings = make_settings(tmp_path)
@@ -75,18 +100,20 @@ def test_append_daily_returns_new_task_ids(tmp_path: Path) -> None:
     app = HandlerApplication(settings, cli=cli)
 
     async def run() -> None:
-        result = await app.append("client", "daily", "- [ ] Plan the trip")
+        result = await app.append("client", "- [ ] Plan the trip\nRemember passport")
         target_path = result.target_path
         new_tasks = result.new_tasks
         assert target_path.startswith("journals/")
         assert list(new_tasks.values()) == ["Plan the trip"]
         note_text = cli.read_vault_text(target_path)
         assert "- [ ] Plan the trip" in note_text
+        assert "- Remember passport" in note_text
+        assert "\nRemember passport" not in note_text
 
     asyncio.run(run())
 
 
-def test_append_project_creates_missing_note_and_preserves_nested_items(
+def test_append_daily_preserves_nested_items_and_returns_new_task_ids(
     tmp_path: Path,
 ) -> None:
     _ = seed_vault(tmp_path)
@@ -97,32 +124,16 @@ def test_append_project_creates_missing_note_and_preserves_nested_items(
     async def run() -> None:
         result = await app.append(
             "client",
-            "voice-assistant",
-            "parent\n  * [ ] child task",
+            "parent\n  child context\n  * [ ] child task",
         )
-        assert result.target_path == "notes/projects/voice-assistant/.minutes.md"
-        note_text = cli.read_vault_text("notes/projects/voice-assistant/.minutes.md")
+        assert result.target_path.startswith("journals/")
+        note_text = cli.read_vault_text(result.target_path)
         assert "- parent" in note_text
+        assert "  - child context" in note_text
+        assert "\n  child context" not in note_text
         assert "  * [ ] child task" in note_text
         new_tasks = result.new_tasks
         assert list(new_tasks.values()) == ["child task"]
-
-    asyncio.run(run())
-
-
-def test_append_rejects_project_path_traversal(tmp_path: Path) -> None:
-    _ = seed_vault(tmp_path)
-    settings = make_settings(tmp_path)
-    cli = FakeObsidianCli(settings)
-    app = HandlerApplication(settings, cli=cli)
-
-    async def run() -> None:
-        try:
-            _ = await app.append("client", "../../etc", "- [ ] nope")
-        except ValueError as exc:
-            assert "single relative path segment" in str(exc)
-        else:
-            raise AssertionError("Expected invalid project target to fail")
 
     asyncio.run(run())
 

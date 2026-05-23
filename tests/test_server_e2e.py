@@ -43,6 +43,10 @@ def test_client_flow_without_authentication(tmp_path: Path) -> None:
                     "resolve_task",
                     "start_daily_standup",
                 }
+                append_tool = next(tool for tool in tools if tool.name == "append_note")
+                input_schema = cast(dict[str, object], append_tool.inputSchema)
+                properties = cast(dict[str, object], input_schema["properties"])
+                assert properties.keys() == {"content"}
                 with pytest.raises(McpError, match="Unknown resource"):
                     _ = await client.read_resource("obsidian://daily-standup")
                 standup: CallToolResult = await client.call_tool(
@@ -52,7 +56,7 @@ def test_client_flow_without_authentication(tmp_path: Path) -> None:
                 assert isinstance(first_content, TextContent)
                 assert "Daily Standup" in first_content.text
                 append_result = await client.call_tool(
-                    "append_note", {"target": "daily", "content": "- [ ] Test new task"}
+                    "append_note", {"content": "- [ ] Test new task"}
                 )
                 appended = AppendResult.model_validate(cast(object, append_result.data))
                 assert appended.success is True

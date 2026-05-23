@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 
 from lmnop.handler.config import Settings
 from lmnop.handler.models import FileSnapshot, TaskIndex, TaskRecord
-from lmnop.handler.obsidian import SCHEDULED_PATTERN, TASK_LINE_PATTERN
+from lmnop.handler.obsidian import SCHEDULED_PATTERN, TAG_PATTERN, TASK_LINE_PATTERN
 
 
 class FakeObsidianCli:
@@ -33,6 +33,13 @@ class FakeObsidianCli:
             file_path.relative_to(self.settings.vault_root).as_posix()
             for file_path in folder_path.glob("*.md")
         )
+
+    async def list_tags(self) -> list[str]:
+        tags: set[str] = set()
+        for path in self._all_markdown_paths():
+            for match in TAG_PATTERN.finditer(self.read_vault_text(path)):
+                tags.add(f"#{match.group('tag')}")
+        return sorted(tags)
 
     async def query_tasks(
         self, selector: str, *, path: str | None = None

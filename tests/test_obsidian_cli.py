@@ -142,3 +142,18 @@ def test_query_tasks_accepts_no_tasks_text(tmp_path: Path) -> None:
         assert await cli.query_tasks("todo") == []
 
     asyncio.run(run())
+
+
+def test_list_tags_normalizes_and_sorts(tmp_path: Path) -> None:
+    processes = [FakeProcess(returncode=0, stdout=b"project/zulu\n#project/alpha\n\n")]
+    settings = Settings(vault_root=tmp_path)
+
+    async def spawn(*args: str, stdout: int | None, stderr: int | None) -> FakeProcess:
+        return await _spawn_factory(processes, *args, stdout=stdout, stderr=stderr)
+
+    cli = ObsidianCli(settings, spawn=spawn)
+
+    async def run() -> None:
+        assert await cli.list_tags() == ["#project/alpha", "#project/zulu"]
+
+    asyncio.run(run())
