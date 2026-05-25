@@ -89,12 +89,11 @@ class AppendResult(BaseModel):
     new_tasks: dict[str, str]
 
 
-class ResolveResult(BaseModel):
+class TaskStatusResult(BaseModel):
     success: bool = True
     id: str
     text: str
-    resolution: str
-    new_id: str | None = None
+    status: str
 
 
 class NoteSection(BaseModel):

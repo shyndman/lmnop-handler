@@ -11,7 +11,7 @@ from fastmcp.client.client import CallToolResult
 from mcp.shared.exceptions import McpError
 from mcp.types import TextContent
 
-from lmnop.handler.models import AppendResult, ResolveResult
+from lmnop.handler.models import AppendResult, TaskStatusResult
 from lmnop.handler.server import HandlerApplication, create_mcp
 from tests.helpers import FakeObsidianCli, make_settings, seed_vault
 
@@ -40,13 +40,21 @@ def test_client_flow_without_authentication(tmp_path: Path) -> None:
                 assert resources == []
                 assert {tool.name for tool in tools} == {
                     "append_note",
-                    "resolve_task",
+                    "set_task_status",
                     "start_daily_standup",
                 }
                 append_tool = next(tool for tool in tools if tool.name == "append_note")
                 input_schema = cast(dict[str, object], append_tool.inputSchema)
                 properties = cast(dict[str, object], input_schema["properties"])
                 assert properties.keys() == {"content"}
+                resolve_tool = next(
+                    tool for tool in tools if tool.name == "set_task_status"
+                )
+                resolve_schema = cast(dict[str, object], resolve_tool.inputSchema)
+                resolve_properties = cast(
+                    dict[str, object], resolve_schema["properties"]
+                )
+                assert resolve_properties.keys() == {"id", "status"}
                 with pytest.raises(McpError, match="Unknown resource"):
                     _ = await client.read_resource("obsidian://daily-standup")
                 standup: CallToolResult = await client.call_tool(
@@ -62,12 +70,12 @@ def test_client_flow_without_authentication(tmp_path: Path) -> None:
                 assert appended.success is True
                 task_id = next(iter(appended.new_tasks))
                 resolve_result = await client.call_tool(
-                    "resolve_task", {"id": task_id, "resolution": "done"}
+                    "set_task_status", {"id": task_id, "status": "x"}
                 )
-                resolved = ResolveResult.model_validate(
+                resolved = TaskStatusResult.model_validate(
                     cast(object, resolve_result.data)
                 )
-                assert resolved.resolution == "done"
+                assert resolved.status == "x"
         finally:
             _ = server_task.cancel()
             try:

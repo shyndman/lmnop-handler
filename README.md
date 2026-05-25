@@ -70,7 +70,7 @@ http://127.0.0.1:8000/mcp
 ## Surface
 
 - resource: `obsidian://daily-standup`
-- tools: `append`, `resolve`
+- tools: `append_note`, `set_task_status`, `start_daily_standup`
 
 ## Inspect the server
 

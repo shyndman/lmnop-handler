@@ -30,6 +30,11 @@ def test_daily_standup_renders_markdown_sections(tmp_path: Path) -> None:
         assert "____: * Found this really great tool" in briefing
         assert paths["yesterday"] in briefing
         assert "Project: eavesdrop" in briefing
+        assert "set_task_status only changes the existing checkbox status" in briefing
+        assert "- [!] match:" in briefing
+        assert "- [/] match:" in briefing
+        assert "- [?] match:" in briefing
+        assert "- [*] match:" in briefing
 
     asyncio.run(run())
 
@@ -138,7 +143,7 @@ def test_append_daily_preserves_nested_items_and_returns_new_task_ids(
     asyncio.run(run())
 
 
-def test_resolve_done_and_dropped_update_source_in_place(tmp_path: Path) -> None:
+def test_resolve_statuses_update_source_in_place(tmp_path: Path) -> None:
     paths = seed_vault(tmp_path)
     settings = make_settings(tmp_path)
     cli = FakeObsidianCli(settings)
@@ -156,10 +161,10 @@ def test_resolve_done_and_dropped_update_source_in_place(tmp_path: Path) -> None
             for line in briefing.splitlines()
             if "Old unscheduled note" in line
         )
-        done_result = await app.resolve("client", today_id, "done")
-        dropped_result = await app.resolve("client", dropped_id, "dropped")
-        assert done_result.new_id is None
-        assert dropped_result.new_id is None
+        done_result = await app.set_task_status("client", today_id, "x")
+        dropped_result = await app.set_task_status("client", dropped_id, "-")
+        assert done_result.status == "x"
+        assert dropped_result.status == "-"
         assert "- [x] Overdue project task" in cli.read_vault_text(
             "notes/projects/eavesdrop/.minutes.md"
         )
@@ -170,7 +175,7 @@ def test_resolve_done_and_dropped_update_source_in_place(tmp_path: Path) -> None
     asyncio.run(run())
 
 
-def test_resolve_carries_task_forward_and_refreshes_stale_cache(tmp_path: Path) -> None:
+def test_resolve_carried_status_refreshes_stale_cache(tmp_path: Path) -> None:
     paths = seed_vault(tmp_path)
     settings = make_settings(tmp_path)
     cli = FakeObsidianCli(settings)
@@ -190,12 +195,12 @@ def test_resolve_carries_task_forward_and_refreshes_stale_cache(tmp_path: Path) 
             encoding="utf-8",
         )
         try:
-            _ = await app.resolve("client", carry_id, "carried")
+            _ = await app.set_task_status("client", carry_id, ">")
         except ValueError as exc:
             assert "Unknown open task id" in str(exc)
         else:
             raise AssertionError(
-                "Expected stale id resolution to fail after cache refresh"
+                "Expected stale id status update to fail after cache refresh"
             )
 
         refreshed = await app.daily_standup("client")
@@ -204,11 +209,52 @@ def test_resolve_carries_task_forward_and_refreshes_stale_cache(tmp_path: Path) 
             for line in refreshed.splitlines()
             if "Fresh inbox item renamed" in line
         )
-        result = await app.resolve("client", renamed_id, "carried")
-        assert result.new_id is not None
+        result = await app.set_task_status("client", renamed_id, ">")
+        assert result.status == ">"
         today_text = cli.read_vault_text(await cli.daily_path())
-        assert "- [ ] Fresh inbox item renamed" in today_text
+        assert "- [ ] Fresh inbox item renamed" not in today_text
         updated_yesterday = cli.read_vault_text(paths["yesterday"])
         assert "- [>] Fresh inbox item renamed" in updated_yesterday
+
+    asyncio.run(run())
+
+
+def test_set_task_status_decorative_open_status_stays_open(tmp_path: Path) -> None:
+    paths = seed_vault(tmp_path)
+    settings = make_settings(tmp_path)
+    cli = FakeObsidianCli(settings)
+    app = HandlerApplication(settings, cli=cli)
+
+    async def run() -> None:
+        briefing = await app.daily_standup("client")
+        task_id = next(
+            line.split(":", 1)[0]
+            for line in briefing.splitlines()
+            if "Fresh inbox item" in line
+        )
+        result = await app.set_task_status("client", task_id, "!")
+        assert result.status == "!"
+        assert "- [!] Fresh inbox item" in cli.read_vault_text(paths["yesterday"])
+
+        refreshed = await app.daily_standup("client")
+        assert "Fresh inbox item" in refreshed.split("## Recent unscheduled", 1)[1]
+        reset_id = next(
+            line.split(":", 1)[0]
+            for line in refreshed.splitlines()
+            if "Fresh inbox item" in line
+        )
+        reset_result = await app.set_task_status("client", reset_id, " ")
+        assert reset_result.status == " "
+        assert "- [ ] Fresh inbox item" in cli.read_vault_text(paths["yesterday"])
+
+        star_briefing = await app.daily_standup("client")
+        star_id = next(
+            line.split(":", 1)[0]
+            for line in star_briefing.splitlines()
+            if "Fresh inbox item" in line
+        )
+        star_result = await app.set_task_status("client", star_id, "*")
+        assert star_result.status == "*"
+        assert "- [*] Fresh inbox item" in cli.read_vault_text(paths["yesterday"])
 
     asyncio.run(run())

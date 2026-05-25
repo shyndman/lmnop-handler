@@ -68,7 +68,7 @@ class FakeObsidianCli:
         chunk = content if content.endswith("\n") else f"{content}\n"
         _ = note_path.write_text(chunk, encoding="utf-8")
 
-    async def mutate_task(self, ref: str, resolution: str) -> None:
+    async def mutate_task(self, ref: str, status: str) -> None:
         path, raw_line = ref.rsplit(":", 1)
         line_number = int(raw_line)
         lines = self.read_vault_lines(path)
@@ -76,13 +76,18 @@ class FakeObsidianCli:
         match = TASK_LINE_PATTERN.match(line)
         if match is None:
             raise ValueError(f"Not a task line: {ref}")
-        status = {
+        new_status = {
             "done": "x",
+            "status= ": " ",
             "status=-": "-",
             "status=>": ">",
-        }[resolution]
+            "status=!": "!",
+            "status=/": "/",
+            "status=?": "?",
+            "status=*": "*",
+        }[status]
         lines[line_number - 1] = (
-            f"{match.group('indent')}{match.group('bullet')} [{status}] {match.group('text')}"
+            f"{match.group('indent')}{match.group('bullet')} [{new_status}] {match.group('text')}"
         )
         _ = self.resolve_vault_path(path).write_text(
             "\n".join(lines) + "\n", encoding="utf-8"

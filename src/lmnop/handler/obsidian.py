@@ -207,8 +207,8 @@ class ObsidianCli:
     async def create_note(self, path: str, content: str) -> None:
         _ = await self.run_text("create", f"path={path}", f"content={content}")
 
-    async def mutate_task(self, ref: str, resolution: str) -> None:
-        _ = await self.run_text("task", f"ref={ref}", resolution)
+    async def mutate_task(self, ref: str, status: str) -> None:
+        _ = await self.run_text("task", f"ref={ref}", status)
 
     def normalize_path(self, value: str) -> str:
         path = Path(value.strip())
@@ -470,14 +470,12 @@ def classify_schedule(task: TaskRecord, today: date, upcoming_days: int) -> str 
     return "later"
 
 
-def build_resolution_selector(resolution: str) -> str:
-    if resolution == "done":
+def task_status_mutation(status: str) -> str:
+    if status == "x":
         return "done"
-    if resolution == "dropped":
-        return "status=-"
-    if resolution == "carried":
-        return "status=>"
-    raise ValueError(f"Unsupported resolution: {resolution}")
+    if status in {" ", "-", ">", "!", "/", "?", "*"}:
+        return f"status={status}"
+    raise ValueError(f"Unsupported task status: {status}")
 
 
 def stripped_task_body(raw_line: str) -> str:

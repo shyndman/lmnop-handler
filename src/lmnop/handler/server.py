@@ -17,14 +17,14 @@ from .config import (
     format_settings_report,
     load_loaded_settings,
 )
-from .models import AppendResult, FileSnapshot, ResolveResult, TaskIndex, TaskRecord
+from .models import AppendResult, FileSnapshot, TaskIndex, TaskRecord, TaskStatusResult
 from .obsidian import (
     ObsidianCli,
     classify_schedule,
     normalize_list_content,
     render_note_block,
     render_recent_notes,
-    stripped_task_body,
+    task_status_mutation,
 )
 
 RESOURCE_URI = "obsidian://daily-standup"
@@ -36,7 +36,7 @@ RESOURCE_DESCRIPTION = (
     "is coming soon, what still needs triage, what was recently resolved, and the "
     "recent note context needed to talk through it."
 )
-TOOL_RESOLUTIONS = {"done", "dropped", "carried"}
+TOOL_STATUSES = {" ", "x", "-", ">", "!", "/", "?", "*"}
 
 
 class Section(BaseModel):
@@ -57,7 +57,7 @@ class ObsidianCliLike(Protocol):
         self, selector: str, *, path: str | None = None
     ) -> list[TaskRecord]: ...
     async def append_daily(self, content: str) -> None: ...
-    async def mutate_task(self, ref: str, resolution: str) -> None: ...
+    async def mutate_task(self, ref: str, status: str) -> None: ...
     def resolve_vault_path(self, path: str) -> Path: ...
     def snapshot_vault(self) -> Mapping[str, FileSnapshot]: ...
     def build_open_task_index(self, tasks: list[TaskRecord]) -> TaskIndex: ...
@@ -174,11 +174,11 @@ class HandlerApplication:
         await self._refresh_open_index(client_id, {target_path})
         return AppendResult(target_path=target_path, new_tasks=new_tasks)
 
-    async def resolve(
-        self, client_id: str, task_id: str, resolution: str
-    ) -> ResolveResult:
-        if resolution not in TOOL_RESOLUTIONS:
-            raise ValueError(f"Unsupported resolution: {resolution}")
+    async def set_task_status(
+        self, client_id: str, task_id: str, status: str
+    ) -> TaskStatusResult:
+        if status not in TOOL_STATUSES:
+            raise ValueError(f"Unsupported task status: {status}")
 
         index = await self._get_open_index(client_id)
         task = index.by_id.get(task_id)
@@ -189,33 +189,10 @@ class HandlerApplication:
         if task is None:
             raise ValueError(f"Unknown open task id: {task_id}")
 
-        affected_paths = {task.path}
-        new_id: str | None = None
-        if resolution == "done":
-            await self._cli.mutate_task(task.ref, "done")
-        elif resolution == "dropped":
-            await self._cli.mutate_task(task.ref, "status=-")
-        else:
-            await self._cli.mutate_task(task.ref, "status=>")
-            today_path = await self._cli.daily_path()
-            today_file = self._cli.resolve_vault_path(today_path)
-            before_line_count = (
-                len(today_file.read_text(encoding="utf-8").splitlines())
-                if today_file.exists()
-                else 0
-            )
-            await self._cli.append_daily(f"- [ ] {stripped_task_body(task.raw_line)}")
-            full_id_map = await self._build_full_task_id_map()
-            new_tasks = self._extract_new_tasks(
-                today_path, before_line_count, full_id_map
-            )
-            new_id = next(iter(new_tasks), None)
-            affected_paths.add(today_path)
+        await self._cli.mutate_task(task.ref, task_status_mutation(status))
 
-        await self._refresh_open_index(client_id, affected_paths)
-        return ResolveResult(
-            id=task_id, text=task.text, resolution=resolution, new_id=new_id
-        )
+        await self._refresh_open_index(client_id, {task.path})
+        return TaskStatusResult(id=task_id, text=task.text, status=status)
 
     async def _recent_daily_paths(self, today_path: str) -> list[str]:
         folder = PurePosixPath(today_path).parent.as_posix()
@@ -330,22 +307,42 @@ class HandlerApplication:
             "Workflow:",
             "1. Work through Today focus first.",
             "2. Review Upcoming for near-term preparation.",
-            "3. For each Recent unscheduled item, pick a date or say skip.",
-            "4. Review Recent resolutions and Recent notes for continuity.",
-            "5. Capture notes with append_note as bullets or nested bullets.",
             (
-                "6. When a note has to do with a project, it MUST be marked "
+                "3. For each Recent unscheduled item, ask whether it is still real. "
+                "If done use set_task_status status x; if dropped use -; if carried "
+                "forward use >."
+            ),
+            (
+                "4. set_task_status only changes the existing checkbox status. If a "
+                "carried task needs new wording, dates, or scope, also use append_note "
+                "to create the new active task."
+            ),
+            "5. Review Recent resolutions and Recent notes for continuity.",
+            "6. Capture notes with append_note as bullets or nested bullets.",
+            (
+                "7. When a note has to do with a project, it MUST be marked "
                 "with the matching #project/ tag."
             ),
-            "7. Available project tags:",
+            "8. Available project tags:",
             *(f"   - {tag}" for tag in project_tags),
             (
-                "8. Preserve task status markers: [ ] unchecked, [x] checked, "
-                "[>] rescheduled, [<] scheduled, [!] important, [-] cancelled, "
-                "[/] in progress, [?] question, [*] star, [n] note, [l] location, "
-                "[i] information, [I] idea, [S] amount, [p] pro, [c] con, "
-                '[b] bookmark, ["] quote.'
+                "9. Supported task statuses: [ ] open/default, [x] done, [-] "
+                "dropped/cancelled, [>] carried forward, [!] attention required, "
+                "[/] in progress, [?] question, [*] agent task. Pass the exact single status "
+                "character to set_task_status."
             ),
+            (
+                "10. Use [!] only when the user explicitly says the task needs "
+                "attention, care, judgment, or discussion. Use [/] only when work "
+                "has actually started. Use [?] only when the deliverable is an answer. "
+                "Use [*] only for tasks assigned to the agent."
+            ),
+            "Status examples:",
+            '- [!] match: "this one needs attention", "be careful with this one", "this needs a decision before acting".',
+            '- [/] match: "I started this", "I am halfway through", "continue working on this", "pick this back up".',
+            '- [?] match: "question:", "answer this", "find out whether", "decide whether", "I need to know whether".',
+            '- [*] match: "agent task", "for the agent", "you take this", "this one is yours".',
+            "- [>] match only when carrying an old task forward; use append_note separately for the new task wording.",
             "",
             "Task emoji syntax (from docs/emoji_task_format.md):",
             (
@@ -407,10 +404,10 @@ class EnvironmentApplication:
     async def append(self, client_id: str, content: str) -> AppendResult:
         return await self.application().append(client_id, content)
 
-    async def resolve(
-        self, client_id: str, task_id: str, resolution: str
-    ) -> ResolveResult:
-        return await self.application().resolve(client_id, task_id, resolution)
+    async def set_task_status(
+        self, client_id: str, task_id: str, status: str
+    ) -> TaskStatusResult:
+        return await self.application().set_task_status(client_id, task_id, status)
 
 
 def create_mcp(runtime: HandlerApplication | EnvironmentApplication) -> FastMCP:
@@ -449,23 +446,31 @@ def create_mcp(runtime: HandlerApplication | EnvironmentApplication) -> FastMCP:
         )
 
     @mcp.tool(
-        name="resolve_task",
+        name="set_task_status",
         annotations={
             "destructiveHint": True,
             "idempotentHint": False,
             "openWorldHint": False,
         },
     )
-    async def resolve_task_tool(
-        id: str, resolution: str, ctx: Context
+    async def set_task_status_tool(
+        id: str, status: str, ctx: Context
     ) -> dict[str, object]:
-        return (await runtime.resolve(ctx.client_id or "", id, resolution)).model_dump(
-            mode="python"
-        )
+        """Set a task checkbox status.
+
+        Use the exact status character from the standup workflow: space for open,
+        x for done, - for dropped/cancelled, > for carried forward, ! for attention,
+        / for in progress, or ? for question. This only changes the existing task's
+        checkbox status. It never edits task text and never creates replacement tasks;
+        use append_note separately when the current task should be rewritten or copied.
+        """
+        return (
+            await runtime.set_task_status(ctx.client_id or "", id, status)
+        ).model_dump(mode="python")
 
     from .transforms import StandupTool
 
-    _ = (daily_standup_resource, append_note_tool, resolve_task_tool)
+    _ = (daily_standup_resource, append_note_tool, set_task_status_tool)
 
     mcp.add_transform(
         StandupTool(
