@@ -5,11 +5,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from datetime import date
 from pathlib import Path, PurePosixPath
-from typing import ClassVar, Protocol
-
-from fastmcp import Context, FastMCP
-from fastmcp.resources import ResourceContent, ResourceResult
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Protocol
 
 from .config import (
     LoadedSettings,
@@ -17,35 +13,26 @@ from .config import (
     format_settings_report,
     load_loaded_settings,
 )
-from .models import AppendResult, FileSnapshot, TaskIndex, TaskRecord, TaskStatusResult
-from .obsidian import (
-    ObsidianCli,
+from .models import (
+    AppendResult,
+    FileSnapshot,
+    StandupSection,
+    TaskIndex,
+    TaskRecord,
+    TaskStatusResult,
+)
+from .obsidian_cli import ObsidianCli
+from .standup import render_standup_markdown
+from .task_domain import (
+    TASK_QUERY_SELECTORS,
+    TOOL_TASK_STATUSES,
     classify_schedule,
+    is_done_task_status,
     normalize_list_content,
     render_note_block,
     render_recent_notes,
     task_status_mutation,
 )
-
-RESOURCE_URI = "obsidian://daily-standup"
-RESOURCE_NAME = "Daily Standup"
-RESOURCE_DESCRIPTION = (
-    "The authoritative briefing for starting today's standup. Read this first when "
-    "beginning the daily standup workflow. It contains the workflow guidance and the "
-    "current vault data required to conduct the conversation: what matters now, what "
-    "is coming soon, what still needs triage, what was recently resolved, and the "
-    "recent note context needed to talk through it."
-)
-TOOL_STATUSES = {" ", "x", "-", ">", "!", "/", "?", "*"}
-
-
-class Section(BaseModel):
-    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
-
-    title: str
-    what: str
-    why: str
-    groups: list[tuple[str, str]] = Field(default_factory=list)
 
 
 class ObsidianCliLike(Protocol):
@@ -101,7 +88,7 @@ class HandlerApplication:
         for path in recent_paths:
             tasks = await self._load_tasks_for_path(path)
             for task in tasks:
-                if task.status in {"x", "X"}:
+                if is_done_task_status(task.status):
                     recent_done.append(task)
                 elif task.status == "-":
                     recent_dropped.append(task)
@@ -118,25 +105,25 @@ class HandlerApplication:
         ]
 
         sections = [
-            Section(
+            StandupSection(
                 title="Today focus",
                 what="Open tasks that matter now.",
                 why="This is today's working set.",
                 groups=await self._render_task_groups(today_focus, full_id_map),
             ),
-            Section(
+            StandupSection(
                 title="Upcoming",
                 what="Open tasks scheduled soon.",
                 why="These may need prerequisites or advance attention.",
                 groups=await self._render_task_groups(upcoming, full_id_map),
             ),
-            Section(
+            StandupSection(
                 title="Recent unscheduled",
                 what="Fresh open tasks with no schedule yet.",
                 why="Each one needs triage: pick a date or skip.",
                 groups=await self._render_task_groups(recent_unscheduled, full_id_map),
             ),
-            Section(
+            StandupSection(
                 title="Recent resolutions",
                 what="Recently completed or dropped tasks.",
                 why="This is the short accountability trail.",
@@ -144,7 +131,7 @@ class HandlerApplication:
                     recent_done + recent_dropped, full_id_map
                 ),
             ),
-            Section(
+            StandupSection(
                 title="Recent notes",
                 what="Recent non-task bullets.",
                 why="They provide context that may matter to the conversation.",
@@ -152,7 +139,7 @@ class HandlerApplication:
             ),
         ]
 
-        return self._render_standup_markdown(sections, await self._project_tags())
+        return render_standup_markdown(today, sections, await self._project_tags())
 
     async def append(self, client_id: str, content: str) -> AppendResult:
         normalized = normalize_list_content(content)
@@ -177,7 +164,7 @@ class HandlerApplication:
     async def set_task_status(
         self, client_id: str, task_id: str, status: str
     ) -> TaskStatusResult:
-        if status not in TOOL_STATUSES:
+        if status not in TOOL_TASK_STATUSES:
             raise ValueError(f"Unsupported task status: {status}")
 
         index = await self._get_open_index(client_id)
@@ -205,9 +192,15 @@ class HandlerApplication:
         return sorted(tag for tag in tags if tag.startswith("#project/"))
 
     async def _load_tasks_for_path(self, path: str) -> list[TaskRecord]:
+        return await self._query_tasks(path=path)
+
+    async def _build_full_task_id_map(self) -> dict[str, TaskRecord]:
+        return TaskIndex(tasks=tuple(await self._query_tasks()), watched_files={}).by_id
+
+    async def _query_tasks(self, *, path: str | None = None) -> list[TaskRecord]:
         seen: set[tuple[str, int, str, str]] = set()
         tasks: list[TaskRecord] = []
-        for selector in ("todo", "done", "status=-", "status=>"):
+        for selector in TASK_QUERY_SELECTORS:
             for task in await self._cli.query_tasks(selector, path=path):
                 key = (task.path, task.line, task.status, task.text)
                 if key not in seen:
@@ -215,18 +208,6 @@ class HandlerApplication:
                     tasks.append(task)
         tasks.sort(key=lambda task: (task.path, task.line, task.text, task.status))
         return tasks
-
-    async def _build_full_task_id_map(self) -> dict[str, TaskRecord]:
-        seen: set[tuple[str, int, str, str]] = set()
-        tasks: list[TaskRecord] = []
-        for selector in ("todo", "done", "status=-", "status=>"):
-            for task in await self._cli.query_tasks(selector):
-                key = (task.path, task.line, task.status, task.text)
-                if key not in seen:
-                    seen.add(key)
-                    tasks.append(task)
-        tasks.sort(key=lambda task: (task.path, task.line, task.text, task.status))
-        return TaskIndex(tasks=tuple(tasks), watched_files={}).by_id
 
     async def _get_open_index(self, client_id: str) -> TaskIndex:
         cached = self._open_task_cache.get(client_id)
@@ -296,81 +277,6 @@ class HandlerApplication:
             if task.ref in ids_by_ref
         }
 
-    def _render_standup_markdown(
-        self, sections: list[Section], project_tags: list[str]
-    ) -> str:
-        lines = [
-            "# Daily Standup",
-            "",
-            "This is the authoritative briefing for today's standup. Use it to conduct the conversation.",
-            "",
-            "Workflow:",
-            "1. Work through Today focus first.",
-            "2. Review Upcoming for near-term preparation.",
-            (
-                "3. For each Recent unscheduled item, ask whether it is still real. "
-                "If done use set_task_status status x; if dropped use -; if carried "
-                "forward use >."
-            ),
-            (
-                "4. set_task_status only changes the existing checkbox status. If a "
-                "carried task needs new wording, dates, or scope, also use append_note "
-                "to create the new active task."
-            ),
-            "5. Review Recent resolutions and Recent notes for continuity.",
-            "6. Capture notes with append_note as bullets or nested bullets.",
-            (
-                "7. When a note has to do with a project, it MUST be marked "
-                "with the matching #project/ tag."
-            ),
-            "8. Available project tags:",
-            *(f"   - {tag}" for tag in project_tags),
-            (
-                "9. Supported task statuses: [ ] open/default, [x] done, [-] "
-                "dropped/cancelled, [>] carried forward, [!] attention required, "
-                "[/] in progress, [?] question, [*] agent task. Pass the exact single status "
-                "character to set_task_status."
-            ),
-            (
-                "10. Use [!] only when the user explicitly says the task needs "
-                "attention, care, judgment, or discussion. Use [/] only when work "
-                "has actually started. Use [?] only when the deliverable is an answer. "
-                "Use [*] only for tasks assigned to the agent."
-            ),
-            "Status examples:",
-            '- [!] match: "this one needs attention", "be careful with this one", "this needs a decision before acting".',
-            '- [/] match: "I started this", "I am halfway through", "continue working on this", "pick this back up".',
-            '- [?] match: "question:", "answer this", "find out whether", "decide whether", "I need to know whether".',
-            '- [*] match: "agent task", "for the agent", "you take this", "this one is yours".',
-            "- [>] match only when carrying an old task forward; use append_note separately for the new task wording.",
-            "",
-            "Task emoji syntax (from docs/emoji_task_format.md):",
-            (
-                "- Dates: ➕ created, ⏳ scheduled, 🛫 start, 📅 due, "
-                "✅ done, ❌ cancelled; all dates use YYYY-MM-DD."
-            ),
-            "- Priorities: ⏬ lowest, 🔽 low, no marker normal, 🔼 medium, ⏫ high, 🔺 highest.",
-            "- Recurrence: 🔁 followed by the rule, e.g. 🔁 every day when done.",
-            "- On completion: 🏁 keep or 🏁 delete.",
-            "- Dependencies: 🆔 task-id defines an id; ⛔ id1,id2 blocks on ids.",
-            (
-                "- Daily-note placement alone does not make a task due today or active "
-                "today; use an explicit 📅, ⏳, or 🛫 date marker."
-            ),
-        ]
-        for section in sections:
-            lines.extend(
-                [
-                    "",
-                    f"## {section.title}",
-                    f"What this is: {section.what}",
-                    f"Why you care: {section.why}",
-                ]
-            )
-            for label, block in section.groups:
-                lines.extend(["", f"### {label}", block])
-        return "\n".join(lines) + "\n"
-
 
 class EnvironmentApplication:
     _env: Mapping[str, str]
@@ -408,74 +314,3 @@ class EnvironmentApplication:
         self, client_id: str, task_id: str, status: str
     ) -> TaskStatusResult:
         return await self.application().set_task_status(client_id, task_id, status)
-
-
-def create_mcp(runtime: HandlerApplication | EnvironmentApplication) -> FastMCP:
-    mcp = FastMCP("lmnop:handler")
-
-    @mcp.resource(
-        RESOURCE_URI,
-        name=RESOURCE_NAME,
-        description=RESOURCE_DESCRIPTION,
-        mime_type="text/markdown",
-        annotations={"readOnlyHint": True, "idempotentHint": True},
-    )
-    async def daily_standup_resource(ctx: Context) -> ResourceResult:
-        payload = await runtime.daily_standup(ctx.client_id or "")
-        return ResourceResult(
-            contents=[ResourceContent(content=payload, mime_type="text/markdown")]
-        )
-
-    @mcp.tool(
-        name="append_note",
-        description=(
-            "Append content to today's daily note. During standup, use this proactively "
-            "to capture decisions, context, and new tasks as they arise; do not ask "
-            "for confirmation first unless the content is ambiguous. Notes are stored "
-            "as outliner bullets; plain lines are converted to bullets."
-        ),
-        annotations={
-            "destructiveHint": True,
-            "idempotentHint": False,
-            "openWorldHint": False,
-        },
-    )
-    async def append_note_tool(content: str, ctx: Context) -> dict[str, object]:
-        return (await runtime.append(ctx.client_id or "", content)).model_dump(
-            mode="python"
-        )
-
-    @mcp.tool(
-        name="set_task_status",
-        annotations={
-            "destructiveHint": True,
-            "idempotentHint": False,
-            "openWorldHint": False,
-        },
-    )
-    async def set_task_status_tool(
-        id: str, status: str, ctx: Context
-    ) -> dict[str, object]:
-        """Set a task checkbox status.
-
-        Use the exact status character from the standup workflow: space for open,
-        x for done, - for dropped/cancelled, > for carried forward, ! for attention,
-        / for in progress, or ? for question. This only changes the existing task's
-        checkbox status. It never edits task text and never creates replacement tasks;
-        use append_note separately when the current task should be rewritten or copied.
-        """
-        return (
-            await runtime.set_task_status(ctx.client_id or "", id, status)
-        ).model_dump(mode="python")
-
-    from .transforms import StandupTool
-
-    _ = (daily_standup_resource, append_note_tool, set_task_status_tool)
-
-    mcp.add_transform(
-        StandupTool(
-            resource_uri=RESOURCE_URI,
-            resource_description=RESOURCE_DESCRIPTION,
-        )
-    )
-    return mcp

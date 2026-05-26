@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,7 @@ DEFAULT_LAUNCH_DETECTION_TIMEOUT = 0.5
 DEFAULT_READINESS_TIMEOUT = 15.0
 DEFAULT_READINESS_POLL_INTERVAL = 0.25
 DEFAULT_COMMAND_TIMEOUT = 15.0
+DEFAULT_CORS_ALLOW_ORIGIN_REGEX = r"^https://[A-Za-z0-9-]+\.share\.zrok\.io$"
 DEFAULT_CONFIG_DIRNAME = "lmnop-handler"
 DEFAULT_CONFIG_FILENAME = "config.yaml"
 ENV_CONFIG = "LMNOP_HANDLER_CONFIG"
@@ -35,6 +37,7 @@ ENV_OBSIDIAN_BIN = "LMNOP_HANDLER_OBSIDIAN_BIN"
 ENV_VAULT_ROOT = "LMNOP_HANDLER_VAULT_ROOT"
 ENV_VAULT_SELECTOR = "LMNOP_HANDLER_VAULT_SELECTOR"
 ENV_BEARER_TOKENS = "LMNOP_HANDLER_BEARER_TOKENS"
+ENV_CORS_ALLOW_ORIGIN_REGEX = "LMNOP_HANDLER_CORS_ALLOW_ORIGIN_REGEX"
 ENV_RECENT_DAILY_NOTE_COUNT = "LMNOP_HANDLER_RECENT_DAILY_NOTE_COUNT"
 ENV_UPCOMING_DAYS = "LMNOP_HANDLER_UPCOMING_DAYS"
 ENV_LAUNCH_DETECTION_TIMEOUT = "LMNOP_HANDLER_LAUNCH_DETECTION_TIMEOUT"
@@ -63,6 +66,7 @@ class Settings(BaseModel):
     obsidian_bin: str = DEFAULT_OBSIDIAN_BIN
     vault_root: Path
     bearer_tokens: dict[str, str] = Field(default_factory=dict)
+    cors_allow_origin_regex: str | None = DEFAULT_CORS_ALLOW_ORIGIN_REGEX
     vault_selector: str | None = None
     recent_daily_note_count: int = Field(default=DEFAULT_RECENT_DAILY_NOTE_COUNT, ge=1)
     upcoming_days: int = Field(default=DEFAULT_UPCOMING_DAYS, ge=0)
@@ -93,6 +97,17 @@ class Settings(BaseModel):
                 raise ValueError("Bearer token client IDs must be non-empty")
             if not token:
                 raise ValueError("Bearer tokens must be non-empty")
+        return value
+
+    @field_validator("cors_allow_origin_regex")
+    @classmethod
+    def validate_cors_allow_origin_regex(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            _ = re.compile(value)
+        except re.error as exc:
+            raise ValueError(f"Invalid CORS origin regex: {value}") from exc
         return value
 
 
@@ -129,6 +144,7 @@ def format_settings_report(loaded: LoadedSettings) -> str:
         "  Server",
         f"    Host: {settings.host}",
         f"    Port: {settings.port}",
+        f"    CORS origin regex: {settings.cors_allow_origin_regex or '(disabled)'}",
         "",
         "  Obsidian",
         f"    Vault root: {settings.vault_root}",
@@ -215,6 +231,9 @@ def _apply_environment_overrides(
     if ENV_BEARER_TOKENS in values:
         merged["bearer_tokens"] = _parse_bearer_tokens(values[ENV_BEARER_TOKENS])
         overrides.append(ENV_BEARER_TOKENS)
+    if ENV_CORS_ALLOW_ORIGIN_REGEX in values:
+        merged["cors_allow_origin_regex"] = values[ENV_CORS_ALLOW_ORIGIN_REGEX] or None
+        overrides.append(ENV_CORS_ALLOW_ORIGIN_REGEX)
     if ENV_RECENT_DAILY_NOTE_COUNT in values:
         merged["recent_daily_note_count"] = values[ENV_RECENT_DAILY_NOTE_COUNT]
         overrides.append(ENV_RECENT_DAILY_NOTE_COUNT)

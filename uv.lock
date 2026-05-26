@@ -527,6 +527,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "starlette" },
 ]
 
 [package.dev-dependencies]
@@ -540,6 +541,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=3.2.4" },
     { name = "pydantic", specifier = ">=2.13.3" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "starlette", specifier = ">=1.0.0" },
 ]
 
 [package.metadata.requires-dev]

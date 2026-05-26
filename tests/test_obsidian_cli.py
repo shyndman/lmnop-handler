@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import final
 
 from lmnop.handler.config import Settings
-from lmnop.handler.obsidian import ObsidianCli
+from lmnop.handler.obsidian_cli import ObsidianCli
 
 
 @final

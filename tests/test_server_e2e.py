@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 import socket
 from pathlib import Path
 from typing import cast
@@ -10,9 +11,11 @@ from fastmcp import Client
 from fastmcp.client.client import CallToolResult
 from mcp.shared.exceptions import McpError
 from mcp.types import TextContent
+from starlette.testclient import TestClient
 
+from lmnop.handler.application import HandlerApplication
+from lmnop.handler.mcp_api import build_http_middleware, create_mcp
 from lmnop.handler.models import AppendResult, TaskStatusResult
-from lmnop.handler.server import HandlerApplication, create_mcp
 from tests.helpers import FakeObsidianCli, make_settings, seed_vault
 
 
@@ -63,6 +66,9 @@ def test_client_flow_without_authentication(tmp_path: Path) -> None:
                 first_content = standup.content[0]
                 assert isinstance(first_content, TextContent)
                 assert "Daily Standup" in first_content.text
+                assert (
+                    f"Current date: {date.today().isoformat()}." in first_content.text
+                )
                 append_result = await client.call_tool(
                     "append_note", {"content": "- [ ] Test new task"}
                 )
@@ -84,3 +90,49 @@ def test_client_flow_without_authentication(tmp_path: Path) -> None:
                 pass
 
     asyncio.run(run())
+
+
+def test_http_app_allows_zrok_browser_cors_origin(tmp_path: Path) -> None:
+    _ = seed_vault(tmp_path)
+    settings = make_settings(tmp_path)
+    cli = FakeObsidianCli(settings)
+    app = HandlerApplication(settings, cli=cli)
+    http_app = create_mcp(app).http_app(middleware=build_http_middleware(settings))
+
+    with TestClient(http_app) as client:
+        allowed = client.options(
+            "/mcp",
+            headers={
+                "Origin": "https://debug.share.zrok.io",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": (
+                    "mcp-protocol-version,mcp-session-id,authorization,content-type"
+                ),
+            },
+        )
+        assert allowed.status_code == 200
+        assert (
+            allowed.headers["access-control-allow-origin"]
+            == "https://debug.share.zrok.io"
+        )
+        assert "mcp-session-id" in allowed.headers["access-control-allow-headers"]
+
+        request = client.get("/mcp", headers={"Origin": "https://debug.share.zrok.io"})
+        assert request.headers["access-control-allow-origin"] == (
+            "https://debug.share.zrok.io"
+        )
+        assert request.headers["access-control-expose-headers"] == "mcp-session-id"
+        assert request.headers["mcp-session-id"]
+
+        rejected = client.options(
+            "/mcp",
+            headers={
+                "Origin": "https://debug.example.com",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": (
+                    "mcp-protocol-version,mcp-session-id,authorization,content-type"
+                ),
+            },
+        )
+        assert rejected.status_code == 400
+        assert rejected.headers.get("access-control-allow-origin") is None

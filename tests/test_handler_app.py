@@ -4,7 +4,7 @@ import asyncio
 from datetime import date
 from pathlib import Path
 
-from lmnop.handler.server import HandlerApplication
+from lmnop.handler.application import HandlerApplication
 from tests.helpers import FakeObsidianCli, make_settings, seed_vault
 
 FIXTURE_VAULT = Path("tests/vault/handler-test-vault")
@@ -19,6 +19,7 @@ def test_daily_standup_renders_markdown_sections(tmp_path: Path) -> None:
     async def run() -> None:
         briefing = await app.daily_standup("client")
         assert "# Daily Standup" in briefing
+        assert f"Current date: {date.today().isoformat()}." in briefing
         assert "## Today focus" in briefing
         assert "## Upcoming" in briefing
         assert "## Recent unscheduled" in briefing
@@ -69,6 +70,7 @@ def test_daily_standup_reads_repo_fixture_vault() -> None:
         briefing = await app.daily_standup("client")
         assert "Throw it on the NAS and kick the tires" in briefing
         assert "Prepare migration notes" in briefing
+        assert f"Current date: {date.today().isoformat()}." in briefing
 
     asyncio.run(run())
 

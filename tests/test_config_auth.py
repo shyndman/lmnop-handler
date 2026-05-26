@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 
 import lmnop.handler as handler_module
+from lmnop.handler.application import EnvironmentApplication
 from lmnop.handler.config import ConfigError, load_settings
-from lmnop.handler.server import EnvironmentApplication
 
 
 def test_load_settings_requires_config_file(tmp_path: Path) -> None:
@@ -29,6 +32,9 @@ def test_load_settings_reads_yaml_config(tmp_path: Path) -> None:
     assert settings.port == 8123
     assert settings.vault_root == vault_root.resolve()
     assert settings.bearer_tokens == {"claude": "secret-token"}
+    assert settings.cors_allow_origin_regex == (
+        r"^https://[A-Za-z0-9-]+\.share\.zrok\.io$"
+    )
 
 
 def test_load_settings_allows_missing_bearer_tokens(tmp_path: Path) -> None:
@@ -56,12 +62,26 @@ def test_load_settings_env_overrides_yaml(tmp_path: Path) -> None:
             "LMNOP_HANDLER_HOST": "0.0.0.0",
             "LMNOP_HANDLER_PORT": "9000",
             "LMNOP_HANDLER_BEARER_TOKENS": '{"claude":"override-token"}',
+            "LMNOP_HANDLER_CORS_ALLOW_ORIGIN_REGEX": r"^https://debug\.example$",
         }
     )
 
     assert settings.host == "0.0.0.0"
     assert settings.port == 9000
     assert settings.bearer_tokens == {"claude": "override-token"}
+    assert settings.cors_allow_origin_regex == r"^https://debug\.example$"
+
+
+def test_load_settings_rejects_invalid_cors_regex(tmp_path: Path) -> None:
+    vault_root = tmp_path / "vault"
+    config_path = _write_config(
+        tmp_path,
+        vault_root,
+        extra_lines=["cors_allow_origin_regex: '['"],
+    )
+
+    with pytest.raises(ConfigError, match="Invalid CORS origin regex"):
+        _ = load_settings({"LMNOP_HANDLER_CONFIG": str(config_path)})
 
 
 def test_load_settings_rejects_invalid_yaml_root(tmp_path: Path) -> None:
@@ -105,14 +125,20 @@ def test_main_prints_pretty_redacted_startup_report(
     assert "Starting lmnop-handler with configuration" in captured.out
     assert "Config file:" in captured.out
     assert "Vault root:" in captured.out
+    assert "CORS origin regex:" in captured.out
     assert "Authentication" in captured.out
     assert "Disabled: bearer token settings are currently ignored" in captured.out
     assert "secret-token" not in captured.out
-    assert stub_mcp.run_kwargs == {
-        "transport": "http",
-        "host": runtime.settings().host,
-        "port": runtime.settings().port,
-    }
+    assert stub_mcp.run_kwargs is not None
+    assert stub_mcp.run_kwargs["transport"] == "http"
+    assert stub_mcp.run_kwargs["host"] == runtime.settings().host
+    assert stub_mcp.run_kwargs["port"] == runtime.settings().port
+    middleware = cast(list[Middleware], stub_mcp.run_kwargs["middleware"])
+    assert len(middleware) == 1
+    assert middleware[0].cls is CORSMiddleware
+    assert middleware[0].kwargs["allow_origin_regex"] == (
+        runtime.settings().cors_allow_origin_regex
+    )
 
 
 def test_main_swallows_sigint_without_traceback(
@@ -134,11 +160,13 @@ def test_main_swallows_sigint_without_traceback(
     captured = capsys.readouterr()
     assert "Starting lmnop-handler with configuration" in captured.out
     assert captured.err == ""
-    assert stub_mcp.run_kwargs == {
-        "transport": "http",
-        "host": runtime.settings().host,
-        "port": runtime.settings().port,
-    }
+    assert stub_mcp.run_kwargs is not None
+    assert stub_mcp.run_kwargs["transport"] == "http"
+    assert stub_mcp.run_kwargs["host"] == runtime.settings().host
+    assert stub_mcp.run_kwargs["port"] == runtime.settings().port
+    middleware = cast(list[Middleware], stub_mcp.run_kwargs["middleware"])
+    assert len(middleware) == 1
+    assert middleware[0].cls is CORSMiddleware
 
 
 class _StubMcp:
@@ -149,8 +177,20 @@ class _StubMcp:
         self.run_kwargs = None
         self._raise_keyboard_interrupt = raise_keyboard_interrupt
 
-    def run(self, *, transport: str, host: str, port: int) -> None:
-        self.run_kwargs = {"transport": transport, "host": host, "port": port}
+    def run(
+        self,
+        *,
+        transport: str,
+        host: str,
+        port: int,
+        middleware: list[object] | None = None,
+    ) -> None:
+        self.run_kwargs = {
+            "transport": transport,
+            "host": host,
+            "port": port,
+            "middleware": middleware,
+        }
         if self._raise_keyboard_interrupt:
             raise KeyboardInterrupt
 

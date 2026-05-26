@@ -5,7 +5,14 @@ from pathlib import Path, PurePosixPath
 
 from lmnop.handler.config import Settings
 from lmnop.handler.models import FileSnapshot, TaskIndex, TaskRecord
-from lmnop.handler.obsidian import SCHEDULED_PATTERN, TAG_PATTERN, TASK_LINE_PATTERN
+from lmnop.handler.task_domain import (
+    TAG_PATTERN,
+    TASK_LINE_PATTERN,
+    matches_task_selector,
+    normalize_tag_values,
+    parse_task_records,
+    task_status_from_mutation,
+)
 
 
 class FakeObsidianCli:
@@ -35,11 +42,11 @@ class FakeObsidianCli:
         )
 
     async def list_tags(self) -> list[str]:
-        tags: set[str] = set()
+        raw_tags: list[str] = []
         for path in self._all_markdown_paths():
             for match in TAG_PATTERN.finditer(self.read_vault_text(path)):
-                tags.add(f"#{match.group('tag')}")
-        return sorted(tags)
+                raw_tags.append(match.group("tag"))
+        return sorted(normalize_tag_values(raw_tags))
 
     async def query_tasks(
         self, selector: str, *, path: str | None = None
@@ -48,7 +55,7 @@ class FakeObsidianCli:
         tasks: list[TaskRecord] = []
         for relative_path in paths:
             tasks.extend(self._parse_tasks(relative_path))
-        return [task for task in tasks if _matches_selector(task, selector)]
+        return [task for task in tasks if matches_task_selector(task, selector)]
 
     async def append_daily(self, content: str) -> None:
         await self.append_note(await self.daily_path(), content)
@@ -76,16 +83,7 @@ class FakeObsidianCli:
         match = TASK_LINE_PATTERN.match(line)
         if match is None:
             raise ValueError(f"Not a task line: {ref}")
-        new_status = {
-            "done": "x",
-            "status= ": " ",
-            "status=-": "-",
-            "status=>": ">",
-            "status=!": "!",
-            "status=/": "/",
-            "status=?": "?",
-            "status=*": "*",
-        }[status]
+        new_status = task_status_from_mutation(status)
         lines[line_number - 1] = (
             f"{match.group('indent')}{match.group('bullet')} [{new_status}] {match.group('text')}"
         )
@@ -140,28 +138,7 @@ class FakeObsidianCli:
         note_path = self.resolve_vault_path(path)
         if not note_path.exists():
             return []
-        tasks: list[TaskRecord] = []
-        for index, raw_line in enumerate(
-            note_path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
-            match = TASK_LINE_PATTERN.match(raw_line)
-            if match is None:
-                continue
-            text = match.group("text")
-            scheduled_match = SCHEDULED_PATTERN.search(text)
-            tasks.append(
-                TaskRecord(
-                    path=path,
-                    line=index,
-                    text=text,
-                    status=match.group("status"),
-                    raw_line=raw_line,
-                    scheduled_on=date.fromisoformat(scheduled_match.group(1))
-                    if scheduled_match
-                    else None,
-                )
-            )
-        return tasks
+        return parse_task_records(path, note_path.read_text(encoding="utf-8"))
 
 
 def make_settings(vault_root: Path) -> Settings:
@@ -228,15 +205,3 @@ def seed_vault(vault_root: Path, today: date | None = None) -> dict[str, str]:
         "two_days_ago": two_days_ago_path.relative_to(vault_root).as_posix(),
         "project": project_path.relative_to(vault_root).as_posix(),
     }
-
-
-def _matches_selector(task: TaskRecord, selector: str) -> bool:
-    if selector == "todo":
-        return task.is_open
-    if selector == "done":
-        return task.status in {"x", "X"}
-    if selector == "status=-":
-        return task.status == "-"
-    if selector == "status=>":
-        return task.status == ">"
-    raise ValueError(f"Unsupported selector: {selector}")

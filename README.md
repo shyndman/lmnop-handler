@@ -61,6 +61,8 @@ The vault defaults are only copied when `/vaults/.obsidian` is missing. They ref
 
 Authentication is currently disabled. The server accepts unauthenticated MCP requests and ignores any configured bearer token settings.
 
+Browser CORS is enabled for `https://*.share.zrok.io` and exposes `mcp-session-id` for browser-based MCP clients.
+
 The MCP endpoint is available at:
 
 ```text

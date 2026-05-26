@@ -10,6 +10,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 PROJECT_MINUTES_PREFIX = Path("notes/projects")
+_CLOSED_TASK_STATUSES = frozenset({"x", "X", "-", ">"})
 
 
 class FileSnapshot(BaseModel):
@@ -40,7 +41,7 @@ class TaskRecord(BaseModel):
 
     @property
     def is_open(self) -> bool:
-        return self.status not in {"x", "X", "-", ">"}
+        return self.status not in _CLOSED_TASK_STATUSES
 
     @property
     def project(self) -> str | None:
@@ -96,11 +97,13 @@ class TaskStatusResult(BaseModel):
     status: str
 
 
-class NoteSection(BaseModel):
+class StandupSection(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
     title: str
     what: str
     why: str
-    groups: list[tuple[str, str]]
+    groups: list[tuple[str, str]] = Field(default_factory=list)
 
 
 def assign_task_ids(
